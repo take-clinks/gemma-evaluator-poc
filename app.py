@@ -104,7 +104,7 @@ def index():
                     ),
                 ]
 
-                tools = []  （Groundingを使わない）
+                tools = []
 
                 config = types.GenerateContentConfig(
                     tools=tools,
