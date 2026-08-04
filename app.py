@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import traceback
 from flask import Flask, render_template, request, jsonify
 from groq import Groq
 
@@ -98,7 +99,7 @@ def call_groq(headquarters_company, target_company):
         top_p=1,
         stream=True,
         stop=None,
-        compound_custom={"tools": {"enabled_tools": ["web_search", "code_interpreter", "visit_website"]}},
+        compound_custom={"tools": {"enabled_tools": ["web_search"]}},
     )
 
     full_text = ""
@@ -130,7 +131,20 @@ def evaluate():
     try:
         raw_text = call_groq(headquarters_company, target_company)
     except Exception as e:
-        return jsonify({"error": "Groq API呼び出しでエラーが発生しました: " + str(e)}), 500
+        print("=== Groq API呼び出しエラー詳細 ===")
+        traceback.print_exc()
+        detail = str(e)
+        body_text = None
+        try:
+            if hasattr(e, "response") and e.response is not None:
+                body_text = e.response.text
+        except Exception:
+            body_text = None
+        if body_text:
+            print("=== レスポンス本文 ===")
+            print(body_text)
+            detail = detail + " / " + body_text
+        return jsonify({"error": "Groq API呼び出しでエラーが発生しました: " + detail}), 500
 
     cleaned = strip_code_fence(raw_text)
 
