@@ -13,7 +13,7 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 def build_prompt(headquarters_company, target_company):
     prompt = f"""
 あなたは法人間取引の営業支援アナリストです。
-以下の2社について評価してください。
+以下の2社について、Web検索等で最新かつ正確な情報を調べたうえで評価してください。
 
 受注側会社: {headquarters_company}
 取引先候補会社: {target_company}
@@ -22,7 +22,7 @@ def build_prompt(headquarters_company, target_company):
 説明文やコードブロック記号は一切付けないでください。
 
 {{
-  "headquarters": "取引先候補会社の本社所在地",
+  "headquarters": "取引先候補会社の正確な本社所在地（郵便番号含む）",
   "ses": {{
     "fit": 0,
     "scale": 0,
@@ -90,7 +90,7 @@ def call_groq(headquarters_company, target_company):
     prompt = build_prompt(headquarters_company, target_company)
 
     completion = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model="groq/compound-mini",
         messages=[
             {"role": "user", "content": prompt},
         ],
