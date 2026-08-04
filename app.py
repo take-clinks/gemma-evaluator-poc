@@ -13,7 +13,7 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 def build_prompt(headquarters_company, target_company):
     prompt = f"""
 あなたは法人間取引の営業支援アナリストです。
-以下の2社について、Web検索等で最新かつ正確な情報を調べたうえで評価してください。
+以下の2社について評価してください。
 
 受注側会社: {headquarters_company}
 取引先候補会社: {target_company}
@@ -22,7 +22,7 @@ def build_prompt(headquarters_company, target_company):
 説明文やコードブロック記号は一切付けないでください。
 
 {{
-  "headquarters": "取引先候補会社の正確な本社所在地（郵便番号含む）",
+  "headquarters": "取引先候補会社の本社所在地",
   "ses": {{
     "fit": 0,
     "scale": 0,
@@ -97,18 +97,11 @@ def call_groq(headquarters_company, target_company):
         temperature=1,
         max_completion_tokens=2048,
         top_p=1,
-        stream=True,
+        stream=False,
         stop=None,
-        compound_custom={"tools": {"enabled_tools": ["web_search"]}},
     )
 
-    full_text = ""
-    for chunk in completion:
-        delta = chunk.choices[0].delta.content
-        if delta:
-            full_text += delta
-
-    return full_text
+    return completion.choices[0].message.content
 
 
 @app.route("/")
