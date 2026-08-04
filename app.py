@@ -90,7 +90,7 @@ def call_groq(headquarters_company, target_company):
     prompt = build_prompt(headquarters_company, target_company)
 
     completion = client.chat.completions.create(
-        model="groq/compound",
+        model="llama-3.3-70b-versatile",
         messages=[
             {"role": "user", "content": prompt},
         ],
