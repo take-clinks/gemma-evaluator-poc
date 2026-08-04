@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Groq検証 営業候補評価アプリ（PoC）</title>
+<link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+<div class="container">
+<h1>法人間取引 営業候補評価アプリ（Groq検証版）</h1>
+
+<form id="evaluateForm">
+<label for="headquarters_company">受注側会社名</label>
+<input type="text" id="headquarters_company" name="headquarters_company" required>
+
+<label for="target_company">取引先候補会社名</label>
+<input type="text" id="target_company" name="target_company" required>
+
+<button type="submit" id="submitButton">評価する</button>
+</form>
+
+<div id="loadingArea" style="display:none;">
+<div class="spinner"></div>
+<p>分析中です…</p>
+</div>
+
+<div id="errorArea" style="display:none;"></div>
+
+<div id="resultArea" style="display:none;">
+<h2 id="headquartersResult"></h2>
+
+<table class="result-table">
+<thead>
+<tr>
+<th>評価項目</th>
+<th>SES・システム開発</th>
+<th>AIドリブン開発</th>
+</tr>
+</thead>
+<tbody id="resultTableBody">
+</tbody>
+</table>
+
+<div class="judgement-row">
+<div id="sesJudgement" class="judgement-box"></div>
+<div id="aiJudgement" class="judgement-box"></div>
+</div>
+</div>
+
+</div>
+
+<script src="/assets/app.js"></script>
+</body>
+</html>
