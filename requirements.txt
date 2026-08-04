@@ -1,3 +1,4 @@
 Flask==3.0.3
 cohere
+tavily-python
 gunicorn==22.0.0
