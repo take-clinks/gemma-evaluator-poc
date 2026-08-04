@@ -4,19 +4,41 @@ import re
 import traceback
 from flask import Flask, render_template, request, jsonify
 import cohere
+from tavily import TavilyClient
 
 app = Flask(__name__, static_folder="assets", static_url_path="/assets")
 
 COHERE_API_KEY = os.environ.get("COHERE_API_KEY")
+TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY")
 
 
-def build_prompt(headquarters_company, target_company):
+def search_company_info(company_name):
+    tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
+    query = company_name + " 会社概要 本社 所在地"
+    response = tavily_client.search(query, max_results=3)
+
+    lines = []
+    for r in response.get("results", []):
+        title = r.get("title", "")
+        content = r.get("content", "")
+        url = r.get("url", "")
+        lines.append(f"- {title}\n{content}\n(出典: {url})")
+
+    return "\n".join(lines) if lines else "検索結果が見つかりませんでした。"
+
+
+def build_prompt(headquarters_company, target_company, headquarters_info, target_info):
     prompt = f"""
 あなたは法人間取引の営業支援アナリストです。
-以下の2社について、Web検索等で最新かつ正確な情報を調べたうえで評価してください。
+以下の2社について、下記のWeb検索結果を参考にしながら評価してください。
 
 受注側会社: {headquarters_company}
+受注側会社に関するWeb検索結果:
+{headquarters_info}
+
 取引先候補会社: {target_company}
+取引先候補会社に関するWeb検索結果:
+{target_info}
 
 出力は必ず以下のJSON形式のみで返してください。
 説明文やコードブロック記号は一切付けないでください。
@@ -86,17 +108,21 @@ def recalc_block(block):
 
 
 def call_cohere(headquarters_company, target_company):
-    co = cohere.Client(api_key=COHERE_API_KEY)
-    prompt = build_prompt(headquarters_company, target_company)
+    headquarters_info = search_company_info(headquarters_company)
+    target_info = search_company_info(target_company)
 
+    prompt = build_prompt(headquarters_company, target_company, headquarters_info, target_info)
+
+    co = cohere.ClientV2(api_key=COHERE_API_KEY)
     response = co.chat(
-        message=prompt,
-        connectors=[{"id": "web-search"}],
-        model="command-r-plus",
+        model="command-a-03-2025",
+        messages=[
+            {"role": "user", "content": prompt},
+        ],
         temperature=0.3,
     )
 
-    return response.text
+    return response.message.content[0].text
 
 
 @app.route("/")
@@ -116,12 +142,15 @@ def evaluate():
     if not COHERE_API_KEY:
         return jsonify({"error": "COHERE_API_KEYが設定されていません。"}), 500
 
+    if not TAVILY_API_KEY:
+        return jsonify({"error": "TAVILY_API_KEYが設定されていません。"}), 500
+
     try:
         raw_text = call_cohere(headquarters_company, target_company)
     except Exception as e:
-        print("=== Cohere API呼び出しエラー詳細 ===")
+        print("=== API呼び出しエラー詳細 ===")
         traceback.print_exc()
-        return jsonify({"error": "Cohere API呼び出しでエラーが発生しました: " + str(e)}), 500
+        return jsonify({"error": "API呼び出しでエラーが発生しました: " + str(e)}), 500
 
     cleaned = strip_code_fence(raw_text)
 
