@@ -3,11 +3,11 @@ import json
 import re
 import traceback
 from flask import Flask, render_template, request, jsonify
-from groq import Groq
+import cohere
 
 app = Flask(__name__, static_folder="assets", static_url_path="/assets")
 
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+COHERE_API_KEY = os.environ.get("COHERE_API_KEY")
 
 
 def build_prompt(headquarters_company, target_company):
@@ -85,23 +85,18 @@ def recalc_block(block):
     return block
 
 
-def call_groq(headquarters_company, target_company):
-    client = Groq(api_key=GROQ_API_KEY)
+def call_cohere(headquarters_company, target_company):
+    co = cohere.Client(api_key=COHERE_API_KEY)
     prompt = build_prompt(headquarters_company, target_company)
 
-    completion = client.chat.completions.create(
-        model="groq/compound-mini",
-        messages=[
-            {"role": "user", "content": prompt},
-        ],
-        temperature=1,
-        max_completion_tokens=2048,
-        top_p=1,
-        stream=False,
-        stop=None,
+    response = co.chat(
+        message=prompt,
+        connectors=[{"id": "web-search"}],
+        model="command-r-plus",
+        temperature=0.3,
     )
 
-    return completion.choices[0].message.content
+    return response.text
 
 
 @app.route("/")
@@ -118,26 +113,15 @@ def evaluate():
     if not headquarters_company or not target_company:
         return jsonify({"error": "会社名を両方入力してください。"}), 400
 
-    if not GROQ_API_KEY:
-        return jsonify({"error": "GROQ_API_KEYが設定されていません。"}), 500
+    if not COHERE_API_KEY:
+        return jsonify({"error": "COHERE_API_KEYが設定されていません。"}), 500
 
     try:
-        raw_text = call_groq(headquarters_company, target_company)
+        raw_text = call_cohere(headquarters_company, target_company)
     except Exception as e:
-        print("=== Groq API呼び出しエラー詳細 ===")
+        print("=== Cohere API呼び出しエラー詳細 ===")
         traceback.print_exc()
-        detail = str(e)
-        body_text = None
-        try:
-            if hasattr(e, "response") and e.response is not None:
-                body_text = e.response.text
-        except Exception:
-            body_text = None
-        if body_text:
-            print("=== レスポンス本文 ===")
-            print(body_text)
-            detail = detail + " / " + body_text
-        return jsonify({"error": "Groq API呼び出しでエラーが発生しました: " + detail}), 500
+        return jsonify({"error": "Cohere API呼び出しでエラーが発生しました: " + str(e)}), 500
 
     cleaned = strip_code_fence(raw_text)
 
