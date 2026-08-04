@@ -104,9 +104,7 @@ def index():
                     ),
                 ]
 
-                tools = [
-                    types.Tool(googleSearch=types.GoogleSearch()),
-                ]
+                tools = []  （Groundingを使わない）
 
                 config = types.GenerateContentConfig(
                     tools=tools,
