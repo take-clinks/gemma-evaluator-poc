@@ -5,25 +5,168 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>法人間取引 営業候補評価アプリ</title>
   <style>
-    body { font-family: sans-serif; margin: 20px; background-color: #f5f7fa; color: #333; }
-    .container { max-width: 900px; margin: 0 auto; background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-    h1 { font-size: 20px; border-bottom: 2px solid #3b82f6; padding-bottom: 8px; }
-    .form-group { margin-bottom: 15px; }
-    label { display: block; font-weight: bold; margin-bottom: 5px; }
-    input[type="text"] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
-    button { background: #2563eb; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 14px; }
-    button:hover { background: #1d4ed8; }
-    .candidate-section { margin-top: 20px; padding: 15px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; }
-    .candidate-list { margin-bottom: 15px; }
-    .candidate-item { background: white; padding: 10px; margin: 8px 0; border: 1px solid #e5e7eb; border-radius: 4px; display: flex; align-items: flex-start; }
-    .candidate-item input { margin-top: 4px; margin-right: 10px; }
-    .candidate-info strong { color: #1e3a8a; }
-    .candidate-info p { margin: 3px 0 0 0; font-size: 12px; color: #6b7280; }
-    .result-section { margin-top: 25px; border-top: 2px solid #e5e7eb; padding-top: 20px; }
-    .error-box { background: #fef2f2; border: 1px solid #fecaca; color: #dc2626; padding: 12px; border-radius: 4px; margin-top: 15px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-    th, td { border: 1px solid #e5e7eb; padding: 8px; text-align: center; }
-    th { background: #f9fafb; }
+    body {
+      font-family: "Helvetica Neue", Arial, "平角ゴシック Pro W3", "Hiragino Kaku Gothic Pro", メイリオ, Meiryo, sans-serif;
+      margin: 20px;
+      background-color: #f8fafc;
+      color: #1e293b;
+    }
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      background: #ffffff;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
+    }
+    h1 {
+      font-size: 22px;
+      font-weight: bold;
+      margin-bottom: 20px;
+      color: #0f172a;
+    }
+    .form-group {
+      margin-bottom: 15px;
+    }
+    label {
+      display: block;
+      font-weight: bold;
+      margin-bottom: 6px;
+      font-size: 14px;
+    }
+    input[type="text"] {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      box-sizing: border-box;
+      font-size: 14px;
+      background-color: #ffffff;
+    }
+    .btn {
+      background-color: #2563eb;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: bold;
+    }
+    .btn:hover {
+      background-color: #1d4ed8;
+    }
+    .btn-success {
+      background-color: #16a34a;
+    }
+    .btn-success:hover {
+      background-color: #15803d;
+    }
+    .candidate-box {
+      margin-top: 20px;
+      padding: 20px;
+      background-color: #f0f9ff;
+      border: 1px solid #bae6fd;
+      border-radius: 6px;
+    }
+    .candidate-title {
+      font-size: 16px;
+      font-weight: bold;
+      color: #0369a1;
+      margin-top: 0;
+      margin-bottom: 15px;
+    }
+    .candidate-group {
+      margin-bottom: 15px;
+    }
+    .candidate-group h4 {
+      margin: 0 0 8px 0;
+      font-size: 14px;
+      color: #334155;
+    }
+    .candidate-item {
+      background: #ffffff;
+      padding: 10px 12px;
+      margin-bottom: 6px;
+      border: 1px solid #e2e8f0;
+      border-radius: 4px;
+      display: flex;
+      align-items: flex-start;
+    }
+    .candidate-item input[type="radio"] {
+      margin-top: 3px;
+      margin-right: 10px;
+    }
+    .candidate-details strong {
+      color: #0f172a;
+      font-size: 14px;
+    }
+    .candidate-details p {
+      margin: 2px 0 0 0;
+      font-size: 12px;
+      color: #64748b;
+    }
+    .result-section {
+      margin-top: 30px;
+      border-top: 2px solid #e2e8f0;
+      padding-top: 20px;
+    }
+    .hq-address {
+      font-size: 20px;
+      font-weight: bold;
+      margin: 15px 0 25px 0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 20px;
+    }
+    th, td {
+      border: 1px solid #cbd5e1;
+      padding: 10px;
+      text-align: center;
+      font-size: 14px;
+    }
+    th {
+      background-color: #f8fafc;
+      font-weight: bold;
+    }
+    .badge-container {
+      display: flex;
+      gap: 15px;
+      margin-top: 20px;
+    }
+    .badge {
+      flex: 1;
+      padding: 12px;
+      border-radius: 6px;
+      text-align: center;
+      font-weight: bold;
+      font-size: 14px;
+    }
+    .badge-ses {
+      background-color: #dcfce7;
+      color: #15803d;
+    }
+    .badge-ai {
+      background-color: #fef9c3;
+      color: #a16207;
+    }
+    .error-box {
+      background-color: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #dc2626;
+      padding: 12px;
+      border-radius: 4px;
+      margin-top: 15px;
+      font-size: 14px;
+    }
+    #loading {
+      display: none;
+      margin-top: 15px;
+      font-weight: bold;
+      color: #2563eb;
+    }
   </style>
 </head>
 <body>
@@ -31,37 +174,42 @@
 <div class="container">
   <h1>法人間取引 営業候補評価アプリ</h1>
 
-  <!-- ステップ1：キーワード入力 -->
+  <!-- 入力エリア -->
   <div class="form-group">
     <label>受注側会社名（検索キーワード）</label>
-    <input type="text" id="hqInput" placeholder="例: CLINKS">
+    <input type="text" id="hqInput" value="CLINKS">
   </div>
   <div class="form-group">
     <label>取引先候補会社名（検索キーワード）</label>
-    <input type="text" id="targetInput" placeholder="例: アルファ">
+    <input type="text" id="targetInput" placeholder="例: アルファシステム">
   </div>
-  <button onclick="searchCandidates()">1. 会社候補を検索する</button>
+  <button class="btn" onclick="searchCandidates()">1. 会社候補を検索する</button>
 
-  <div id="loading" style="display:none; margin-top:15px; color:#2563eb;">検索中・処理中...</div>
+  <div id="loading">処理中... しばらくお待ちください。</div>
   <div id="errorBox" class="error-box" style="display:none;"></div>
 
-  <!-- ステップ2：候補選択エリア -->
-  <div id="candidateSection" class="candidate-section" style="display:none;">
-    <h3>会社候補を選択してください</h3>
+  <!-- 2ステップ目：会社候補選択エリア -->
+  <div id="candidateBox" class="candidate-box" style="display:none;">
+    <div class="candidate-title">会社候補を選択してください</div>
     
-    <h4>受注側会社の選択</h4>
-    <div id="hqCandidates" class="candidate-list"></div>
+    <div class="candidate-group">
+      <h4>受注側会社の選択</h4>
+      <div id="hqCandidates"></div>
+    </div>
 
-    <h4>取引先候補会社の選択</h4>
-    <div id="targetCandidates" class="candidate-list"></div>
+    <div class="candidate-group">
+      <h4>取引先候補会社の選択</h4>
+      <div id="targetCandidates"></div>
+    </div>
 
-    <button onclick="evaluateCompanies()" style="background:#059669;">2. 選択した2社で営業評価を実行</button>
+    <button class="btn btn-success" onclick="evaluateCompanies()">2. 選択した2社で評価を実行</button>
   </div>
 
-  <!-- ステップ3：評価結果表示 -->
+  <!-- 3ステップ目：評価結果表示 -->
   <div id="resultSection" class="result-section" style="display:none;">
-    <h2>評価結果</h2>
-    <p><strong>取引先本社所在地:</strong> <span id="resHq"></span></p>
+    <div class="hq-address">
+      取引先本社所在地: <span id="resHq"></span>
+    </div>
 
     <table>
       <thead>
@@ -71,22 +219,47 @@
           <th>AIドリブン開発</th>
         </tr>
       </thead>
-      <tbody id="scoreTableBody"></tbody>
+      <tbody id="scoreTableBody">
+      </tbody>
     </table>
+
+    <div class="badge-container">
+      <div class="badge badge-ses" id="sesBadge">
+        SES評価: -
+      </div>
+      <div class="badge badge-ai" id="aiBadge">
+        AI評価: -
+      </div>
+    </div>
   </div>
 </div>
 
 <script>
+const METRIC_NAMES = {
+  fit: "適合度",
+  scale: "規模感",
+  continuity: "継続性",
+  growth: "成長性",
+  strategy: "戦略性",
+  trust: "信頼性",
+  info: "情報量",
+  total: "合計"
+};
+
 async function searchCandidates() {
   const hq = document.getElementById('hqInput').value.trim();
   const target = document.getElementById('targetInput').value.trim();
   const errorBox = document.getElementById('errorBox');
   const loading = document.getElementById('loading');
-  const candidateSection = document.getElementById('candidateSection');
+  const candidateBox = document.getElementById('candidateBox');
   const resultSection = document.getElementById('resultSection');
 
+  // 【最重要修正】ボタンが押された瞬間に過去の表示（候補・評価結果・エラー）を完全に消去（クリア）する
   errorBox.style.display = 'none';
+  candidateBox.style.display = 'none';
   resultSection.style.display = 'none';
+  document.getElementById('hqCandidates').innerHTML = '';
+  document.getElementById('targetCandidates').innerHTML = '';
 
   if (!hq || !target) {
     errorBox.textContent = '受注側会社名と取引先候補会社名の両方を入力してください。';
@@ -113,7 +286,9 @@ async function searchCandidates() {
 
     renderCandidates('hqCandidates', data.headquarters_candidates, 'selectedHq');
     renderCandidates('targetCandidates', data.target_candidates, 'selectedTarget');
-    candidateSection.style.display = 'block';
+    
+    // 新しい結果がセットされてから画面に表示する
+    candidateBox.style.display = 'block';
 
   } catch (err) {
     loading.style.display = 'none';
@@ -127,7 +302,7 @@ function renderCandidates(elementId, candidates, radioName) {
   container.innerHTML = '';
 
   if (!candidates || candidates.length === 0) {
-    container.innerHTML = '<p style="color:red;">候補が見つかりませんでした。</p>';
+    container.innerHTML = '<p style="color:red; font-size:13px;">候補が見つかりませんでした。</p>';
     return;
   }
 
@@ -135,11 +310,12 @@ function renderCandidates(elementId, candidates, radioName) {
     const div = document.createElement('div');
     div.className = 'candidate-item';
     const checked = idx === 0 ? 'checked' : '';
+    
     div.innerHTML = `
-      <input type="radio" name="${radioName}" value="${c.display_name}" ${checked}>
-      <div class="candidate-info">
-        <strong>${c.display_name}</strong> (${c.full_title})
-        <p>${c.snippet}</p>
+      <input type="radio" name="${radioName}" value="${escapeHtml(c.display_name)}" ${checked}>
+      <div class="candidate-details">
+        <strong>${escapeHtml(c.display_name)}</strong>
+        <p>${escapeHtml(c.snippet)}</p>
       </div>
     `;
     container.appendChild(div);
@@ -153,14 +329,17 @@ async function evaluateCompanies() {
   const loading = document.getElementById('loading');
   const resultSection = document.getElementById('resultSection');
 
+  // 【最重要修正】評価ボタンが押された瞬間も過去の評価結果を即時クリアする
+  errorBox.style.display = 'none';
+  resultSection.style.display = 'none';
+
   if (!selectedHq || !selectedTarget) {
-    errorBox.textContent = '両方の会社をラジオボタンから選択してください。';
+    errorBox.textContent = '両方の会社を候補から選択してください。';
     errorBox.style.display = 'block';
     return;
   }
 
   loading.style.display = 'block';
-  errorBox.style.display = 'none';
 
   try {
     const res = await fetch('/evaluate', {
@@ -180,27 +359,51 @@ async function evaluateCompanies() {
       return;
     }
 
-    document.getElementById('resHq').textContent = data.headquarters || '不明';
-    
+    document.getElementById('resHq').textContent = data.headquarters || '確認できませんでした';
+
     const tbody = document.getElementById('scoreTableBody');
     tbody.innerHTML = '';
-    const items = ['fit', 'scale', 'continuity', 'growth', 'strategy', 'trust', 'info', 'total'];
-    
-    items.forEach(item => {
+    const keys = ['fit', 'scale', 'continuity', 'growth', 'strategy', 'trust', 'info', 'total'];
+
+    keys.forEach(key => {
       const tr = document.createElement('tr');
-      const sesVal = data.ses ? data.ses[item] : 0;
-      const aiVal = data.ai ? data.ai[item] : 0;
-      tr.innerHTML = `<td>${item.toUpperCase()}</td><td>${sesVal}</td><td>${aiVal}</td>`;
+      const label = METRIC_NAMES[key] || key;
+      const sesVal = data.ses ? data.ses[key] : 0;
+      const aiVal = data.ai ? data.ai[key] : 0;
+
+      if (key === 'total') {
+        tr.style.fontWeight = 'bold';
+        tr.style.backgroundColor = '#f8fafc';
+      }
+
+      tr.innerHTML = `
+        <td>${label}</td>
+        <td>${sesVal}</td>
+        <td>${aiVal}</td>
+      `;
       tbody.appendChild(tr);
     });
+
+    const sesTotal = data.ses ? data.ses.total : 0;
+    const sesJudge = data.ses ? data.ses.judgement : '';
+    const aiTotal = data.ai ? data.ai.total : 0;
+    const aiJudge = data.ai ? data.ai.judgement : '';
+
+    document.getElementById('sesBadge').textContent = `SES評価: ${sesJudge} (${sesTotal}点)`;
+    document.getElementById('aiBadge').textContent = `AI評価: ${aiJudge} (${aiTotal}点)`;
 
     resultSection.style.display = 'block';
 
   } catch (err) {
     loading.style.display = 'none';
-    errorBox.textContent = '評価処理で通信エラーが発生しました。';
+    errorBox.textContent = '評価処理中に通信エラーが発生しました。';
     errorBox.style.display = 'block';
   }
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 </script>
 
