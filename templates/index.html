@@ -63,7 +63,6 @@
       opacity: 0.7;
     }
 
-    /* プログレスバーのCSSスタイル */
     .progress-wrapper {
       margin-top: 20px;
       padding: 15px 10px;
@@ -112,7 +111,6 @@
       transition: all 0.3s ease;
     }
 
-    /* ステータス別の状態 */
     .step-item.active .step-circle {
       background-color: #2563eb;
       color: white;
@@ -261,7 +259,7 @@
   
   <button id="mainBtn" class="btn" onclick="handleMainAction()">評価開始</button>
 
-  <!-- プログレスバー（評価開始ボタンのすぐ下） -->
+  <!-- プログレスバー -->
   <div id="progressWrapper" class="progress-wrapper" style="display:none;">
     <div class="progress-bar">
       <div class="step-item" id="step1">
@@ -291,7 +289,7 @@
 
   <div id="errorBox" class="error-box" style="display:none;"></div>
 
-  <!-- 複数候補がある場合のみ表示されるエリア -->
+  <!-- 複数候補エリア -->
   <div id="candidateBox" class="candidate-box" style="display:none;">
     <div class="candidate-title">以下から選択または今一度正確な社名を入力</div>
     
@@ -350,9 +348,27 @@ const METRIC_NAMES = {
 let needHqSelect = false;
 let needTargetSelect = false;
 
-// プログレスバーの状態更新関数
+// 手入力を監視するイベントリスナー
+document.addEventListener('DOMContentLoaded', () => {
+  const hqInput = document.getElementById('hqInput');
+  const targetInput = document.getElementById('targetInput');
+
+  hqInput.addEventListener('input', () => {
+    needHqSelect = false;
+    const radios = document.querySelectorAll('input[name="selectedHq"]');
+    radios.forEach(r => r.checked = false);
+    checkAndEnableButton();
+  });
+
+  targetInput.addEventListener('input', () => {
+    needTargetSelect = false;
+    const radios = document.querySelectorAll('input[name="selectedTarget"]');
+    radios.forEach(r => r.checked = false);
+    checkAndEnableButton();
+  });
+});
+
 function updateProgress(stepStates) {
-  // stepStates: e.g. ['active', 'pending', 'pending', 'pending']
   const wrapper = document.getElementById('progressWrapper');
   wrapper.style.display = 'block';
 
@@ -412,10 +428,7 @@ async function handleMainAction() {
     return;
   }
 
-  // ボタンを非アクト化（文字は「評価開始」固定）
   setButtonState(false);
-  
-  // プログレスバー表示：ステップ1（企業検索）アクティブ
   updateProgress(['active', 'pending', 'pending', 'pending']);
 
   try {
@@ -451,14 +464,12 @@ async function handleMainAction() {
       needTargetSelect = true;
     }
 
-    // パターンA: 両方1意確定 ➔ スルーして即評価へ
     if (!needHqSelect && !needTargetSelect) {
       updateProgress(['completed', 'completed', 'active', 'pending']);
       await runEvaluation();
       return;
     }
 
-    // パターンB: 複数候補あり ➔ ステップ2（会社選択）アクティブ
     updateProgress(['completed', 'active', 'pending', 'pending']);
 
     if (needHqSelect) {
@@ -471,7 +482,7 @@ async function handleMainAction() {
     }
 
     document.getElementById('candidateBox').style.display = 'block';
-    setButtonState(false);
+    checkAndEnableButton();
 
   } catch (err) {
     hideProgress();
@@ -517,8 +528,14 @@ function onTargetSelect(selectedName) {
 }
 
 function checkAndEnableButton() {
-  if (!needHqSelect && !needTargetSelect) {
+  const hqVal = document.getElementById('hqInput').value.trim();
+  const targetVal = document.getElementById('targetInput').value.trim();
+
+  // 手入力またはラジオ選択により両方に文字が入っており、かつ選択待ち状態でなければアクト化
+  if (hqVal !== '' && targetVal !== '' && !needHqSelect && !needTargetSelect) {
     setButtonState(true);
+  } else {
+    setButtonState(false);
   }
 }
 
@@ -530,7 +547,6 @@ async function runEvaluation() {
   document.getElementById('candidateBox').style.display = 'none';
   setButtonState(false);
 
-  // 情報収集アクティブ ➔ タイマーでAI評価アクティブへ切り替え
   updateProgress(['completed', 'completed', 'active', 'pending']);
   
   const timer = setTimeout(() => {
@@ -550,7 +566,6 @@ async function runEvaluation() {
     clearTimeout(timer);
     const data = await res.json();
 
-    // ★重要: 結果が出力されたらプログレスバーを消去する
     hideProgress();
     setButtonState(true);
 
