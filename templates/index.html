@@ -62,6 +62,83 @@
       cursor: not-allowed;
       opacity: 0.7;
     }
+
+    /* プログレスバーのCSSスタイル */
+    .progress-wrapper {
+      margin-top: 20px;
+      padding: 15px 10px;
+      background-color: #f1f5f9;
+      border-radius: 6px;
+    }
+    .progress-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .step-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      flex: 1;
+      position: relative;
+    }
+    .step-circle {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background-color: #cbd5e1;
+      color: #64748b;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      font-size: 14px;
+      margin-bottom: 6px;
+      z-index: 2;
+      transition: all 0.3s ease;
+    }
+    .step-label {
+      font-size: 12px;
+      font-weight: bold;
+      color: #64748b;
+      transition: all 0.3s ease;
+    }
+    .step-line {
+      height: 3px;
+      background-color: #cbd5e1;
+      flex: 1;
+      margin: 0 -15px 22px -15px;
+      z-index: 1;
+      transition: all 0.3s ease;
+    }
+
+    /* ステータス別の状態 */
+    .step-item.active .step-circle {
+      background-color: #2563eb;
+      color: white;
+      box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.2);
+      animation: pulse 1.5s infinite;
+    }
+    .step-item.active .step-label {
+      color: #2563eb;
+    }
+    .step-item.completed .step-circle {
+      background-color: #16a34a;
+      color: white;
+    }
+    .step-item.completed .step-label {
+      color: #16a34a;
+    }
+    .step-line.completed {
+      background-color: #16a34a;
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.08); }
+      100% { transform: scale(1); }
+    }
+
     .candidate-box {
       margin-top: 20px;
       padding: 20px;
@@ -165,13 +242,6 @@
       margin-top: 15px;
       font-size: 14px;
     }
-    #statusMsg {
-      display: none;
-      margin-top: 15px;
-      font-weight: bold;
-      color: #2563eb;
-      font-size: 15px;
-    }
   </style>
 </head>
 <body>
@@ -191,7 +261,34 @@
   
   <button id="mainBtn" class="btn" onclick="handleMainAction()">評価開始</button>
 
-  <div id="statusMsg"></div>
+  <!-- プログレスバー（評価開始ボタンのすぐ下） -->
+  <div id="progressWrapper" class="progress-wrapper" style="display:none;">
+    <div class="progress-bar">
+      <div class="step-item" id="step1">
+        <div class="step-circle" id="circle1">1</div>
+        <div class="step-label">企業検索</div>
+      </div>
+      <div class="step-line" id="line1"></div>
+      
+      <div class="step-item" id="step2">
+        <div class="step-circle" id="circle2">2</div>
+        <div class="step-label">会社選択</div>
+      </div>
+      <div class="step-line" id="line2"></div>
+      
+      <div class="step-item" id="step3">
+        <div class="step-circle" id="circle3">3</div>
+        <div class="step-label">情報収集</div>
+      </div>
+      <div class="step-line" id="line3"></div>
+      
+      <div class="step-item" id="step4">
+        <div class="step-circle" id="circle4">4</div>
+        <div class="step-label">AI評価</div>
+      </div>
+    </div>
+  </div>
+
   <div id="errorBox" class="error-box" style="display:none;"></div>
 
   <!-- 複数候補がある場合のみ表示されるエリア -->
@@ -250,24 +347,46 @@ const METRIC_NAMES = {
   total: "合計"
 };
 
-// 選択必須フラグ
 let needHqSelect = false;
 let needTargetSelect = false;
 
-function setButtonState(enabled, text) {
-  const btn = document.getElementById('mainBtn');
-  btn.disabled = !enabled;
-  if (text) btn.textContent = text;
+// プログレスバーの状態更新関数
+function updateProgress(stepStates) {
+  // stepStates: e.g. ['active', 'pending', 'pending', 'pending']
+  const wrapper = document.getElementById('progressWrapper');
+  wrapper.style.display = 'block';
+
+  for (let i = 1; i <= 4; i++) {
+    const item = document.getElementById(`step${i}`);
+    const circle = document.getElementById(`circle${i}`);
+    const state = stepStates[i - 1];
+
+    item.classList.remove('active', 'completed', 'pending');
+    item.classList.add(state);
+
+    if (state === 'completed') {
+      circle.textContent = '✓';
+    } else {
+      circle.textContent = i;
+    }
+
+    if (i < 4) {
+      const line = document.getElementById(`line${i}`);
+      line.classList.remove('completed');
+      if (state === 'completed') {
+        line.classList.add('completed');
+      }
+    }
+  }
 }
 
-function showStatus(text) {
-  const msg = document.getElementById('statusMsg');
-  if (text) {
-    msg.textContent = text;
-    msg.style.display = 'block';
-  } else {
-    msg.style.display = 'none';
-  }
+function hideProgress() {
+  document.getElementById('progressWrapper').style.display = 'none';
+}
+
+function setButtonState(enabled) {
+  const btn = document.getElementById('mainBtn');
+  btn.disabled = !enabled;
 }
 
 function clearPreviousState() {
@@ -293,9 +412,11 @@ async function handleMainAction() {
     return;
   }
 
-  // ボタンを非アクト化し、会社名判定処理を開始
-  setButtonState(false, '会社名判定処理中...');
-  showStatus('会社名判定処理中...');
+  // ボタンを非アクト化（文字は「評価開始」固定）
+  setButtonState(false);
+  
+  // プログレスバー表示：ステップ1（企業検索）アクティブ
+  updateProgress(['active', 'pending', 'pending', 'pending']);
 
   try {
     const res = await fetch('/search_candidates', {
@@ -306,8 +427,8 @@ async function handleMainAction() {
     const data = await res.json();
 
     if (data.error) {
-      showStatus(null);
-      setButtonState(true, '評価開始');
+      hideProgress();
+      setButtonState(true);
       errorBox.textContent = data.error;
       errorBox.style.display = 'block';
       return;
@@ -316,7 +437,6 @@ async function handleMainAction() {
     const hqRes = data.hq_res;
     const targetRes = data.target_res;
 
-    // 1意に決まった側は社名BOXに正式名称を即座に上書きセット
     if (hqRes.status === 'single') {
       document.getElementById('hqInput').value = hqRes.exact_name;
       needHqSelect = false;
@@ -331,15 +451,16 @@ async function handleMainAction() {
       needTargetSelect = true;
     }
 
-    // パターンA: 両方とも1意に確定した場合 ➔ そのまま自動で評価実行へ
+    // パターンA: 両方1意確定 ➔ スルーして即評価へ
     if (!needHqSelect && !needTargetSelect) {
+      updateProgress(['completed', 'completed', 'active', 'pending']);
       await runEvaluation();
       return;
     }
 
-    // パターンB: どちらか（または両方）複数候補がある場合 ➔ リスト表示
-    showStatus(null);
-    
+    // パターンB: 複数候補あり ➔ ステップ2（会社選択）アクティブ
+    updateProgress(['completed', 'active', 'pending', 'pending']);
+
     if (needHqSelect) {
       renderCandidates('hqCandidates', hqRes.candidates, 'selectedHq', onHqSelect);
       document.getElementById('hqCandidateGroup').style.display = 'block';
@@ -350,13 +471,11 @@ async function handleMainAction() {
     }
 
     document.getElementById('candidateBox').style.display = 'block';
-
-    // 複数候補選択が必要なため、ボタンは非アクト化（評価開始）
-    setButtonState(false, '評価開始');
+    setButtonState(false);
 
   } catch (err) {
-    showStatus(null);
-    setButtonState(true, '評価開始');
+    hideProgress();
+    setButtonState(true);
     errorBox.textContent = '通信エラーが発生しました。';
     errorBox.style.display = 'block';
   }
@@ -376,7 +495,7 @@ function renderCandidates(containerId, candidates, radioName, selectCallback) {
         <p>${escapeHtml(c.snippet)}</p>
       </div>
     `;
-    div.onclick = (e) => {
+    div.onclick = () => {
       const radio = div.querySelector('input[type="radio"]');
       radio.checked = true;
       selectCallback(c.display_name);
@@ -398,9 +517,8 @@ function onTargetSelect(selectedName) {
 }
 
 function checkAndEnableButton() {
-  // 両方の選択が完了したらボタンをアクト化（青色に点灯）
   if (!needHqSelect && !needTargetSelect) {
-    setButtonState(true, '評価開始');
+    setButtonState(true);
   }
 }
 
@@ -409,15 +527,15 @@ async function runEvaluation() {
   const targetCompany = document.getElementById('targetInput').value.trim();
   const errorBox = document.getElementById('errorBox');
 
-  // 評価実行時は候補リスト表示を消去
   document.getElementById('candidateBox').style.display = 'none';
+  setButtonState(false);
 
-  setButtonState(false, '評価実行中...');
-
-  // ステータス表示アニメーション
-  showStatus('情報収集中...');
-  const timer1 = setTimeout(() => showStatus('データ分析中...'), 2500);
-  const timer2 = setTimeout(() => showStatus('営業適合度を判定中...'), 5000);
+  // 情報収集アクティブ ➔ タイマーでAI評価アクティブへ切り替え
+  updateProgress(['completed', 'completed', 'active', 'pending']);
+  
+  const timer = setTimeout(() => {
+    updateProgress(['completed', 'completed', 'completed', 'active']);
+  }, 2500);
 
   try {
     const res = await fetch('/evaluate', {
@@ -429,12 +547,12 @@ async function runEvaluation() {
       })
     });
     
-    clearTimeout(timer1);
-    clearTimeout(timer2);
-
+    clearTimeout(timer);
     const data = await res.json();
-    showStatus(null);
-    setButtonState(true, '評価開始');
+
+    // ★重要: 結果が出力されたらプログレスバーを消去する
+    hideProgress();
+    setButtonState(true);
 
     if (data.error) {
       errorBox.textContent = data.error;
@@ -478,10 +596,9 @@ async function runEvaluation() {
     document.getElementById('resultSection').style.display = 'block';
 
   } catch (err) {
-    clearTimeout(timer1);
-    clearTimeout(timer2);
-    showStatus(null);
-    setButtonState(true, '評価開始');
+    clearTimeout(timer);
+    hideProgress();
+    setButtonState(true);
     errorBox.textContent = '評価処理中に通信エラーが発生しました。';
     errorBox.style.display = 'block';
   }
