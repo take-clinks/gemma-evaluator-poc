@@ -17,20 +17,24 @@ def search_company_info(company_name):
     query = company_name + " 会社概要 本社 所在地"
     response = tavily_client.search(query, max_results=3)
 
+    results = response.get("results", [])
+    if not results:
+        return "検索結果なし（該当する会社情報が見つかりませんでした）"
+
     lines = []
-    for r in response.get("results", []):
+    for r in results:
         title = r.get("title", "")
         content = r.get("content", "")
         url = r.get("url", "")
         lines.append(f"- {title}\n{content}\n(出典: {url})")
 
-    return "\n".join(lines) if lines else "検索結果が見つかりませんでした。"
+    return "\n".join(lines)
 
 
 def build_prompt(headquarters_company, target_company, headquarters_info, target_info):
     prompt = f"""
 あなたは法人間取引の営業支援アナリストです。
-以下の2社について、下記のWeb検索結果を参考にしながら評価してください。
+以下の2社について、下記のWeb検索結果のみを根拠として評価してください。
 
 受注側会社: {headquarters_company}
 受注側会社に関するWeb検索結果:
@@ -40,11 +44,17 @@ def build_prompt(headquarters_company, target_company, headquarters_info, target
 取引先候補会社に関するWeb検索結果:
 {target_info}
 
+重要な制約:
+Web検索結果の中に、取引先候補会社が実在すると確認できる具体的な情報（会社概要、公式サイト、本社所在地の記載等）が
+含まれていない場合は、想像や推測で情報を作成してはいけません。
+その場合は headquarters の値を "検索結果からは本社所在地を確認できませんでした" としてください。
+検索結果に含まれていない住所・郵便番号・ビル名を、絶対に自分で創作しないでください。
+
 出力は必ず以下のJSON形式のみで返してください。
 説明文やコードブロック記号は一切付けないでください。
 
 {{
-  "headquarters": "取引先候補会社の正確な本社所在地（郵便番号含む）",
+  "headquarters": "取引先候補会社の正確な本社所在地（郵便番号含む）、確認できない場合は確認できない旨",
   "ses": {{
     "fit": 0,
     "scale": 0,
@@ -72,6 +82,7 @@ def build_prompt(headquarters_company, target_company, headquarters_info, target
 各項目（fit, scale, continuity, growth, strategy, trust, info）は0以上の整数で、
 各区分（ses, ai）ごとに合計が100点になるよう配点してください。
 sesはSES・システム開発の営業適合度評価、aiはAIドリブン開発の営業適合度評価です。
+取引先候補会社の実在性が確認できない場合は、すべての項目を0点にしてください。
 """
     return prompt
 
@@ -119,7 +130,7 @@ def call_cohere(headquarters_company, target_company):
         messages=[
             {"role": "user", "content": prompt},
         ],
-        temperature=0.3,
+        temperature=0.1,
     )
 
     return response.message.content[0].text
