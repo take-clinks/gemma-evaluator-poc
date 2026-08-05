@@ -29,7 +29,9 @@
       margin-bottom: 15px;
     }
     label {
-      display: block;
+      display: flex;
+      align-items: center;
+      gap: 8px;
       font-weight: bold;
       margin-bottom: 6px;
       font-size: 14px;
@@ -61,6 +63,32 @@
       background-color: #94a3b8;
       cursor: not-allowed;
       opacity: 0.7;
+    }
+    .btn-retry {
+      background-color: #d97706;
+      margin-top: 10px;
+    }
+    .btn-retry:hover:not(:disabled) {
+      background-color: #b45309;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: bold;
+      transition: all 0.2s ease;
+    }
+    .status-badge.unconfirmed {
+      background-color: #e2e8f0;
+      color: #64748b;
+    }
+    .status-badge.confirmed {
+      background-color: #dcfce7;
+      color: #16a34a;
     }
 
     .progress-wrapper {
@@ -242,12 +270,31 @@
       margin-top: 15px;
       font-size: 14px;
     }
-    .confirmed-tag {
-      display: inline-block;
-      margin-left: 8px;
-      font-size: 11px;
+    .error-box .error-msg {
       font-weight: bold;
-      color: #16a34a;
+      margin-bottom: 4px;
+    }
+    .error-detail-toggle {
+      display: inline-block;
+      margin-top: 6px;
+      font-size: 12px;
+      color: #991b1b;
+      text-decoration: underline;
+      cursor: pointer;
+    }
+    .error-detail-content {
+      display: none;
+      margin-top: 8px;
+      padding: 8px;
+      background-color: #ffffff;
+      border: 1px solid #fecaca;
+      border-radius: 4px;
+      font-size: 11px;
+      color: #7f1d1d;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 200px;
+      overflow-y: auto;
     }
   </style>
 </head>
@@ -258,11 +305,17 @@
 
   <!-- 入力エリア -->
   <div class="form-group">
-    <label>受注側会社名<span id="hqConfirmedTag" class="confirmed-tag" style="display:none;">✅ 確定済み</span></label>
+    <label>
+      受注側会社名
+      <span id="hqStatusBadge" class="status-badge unconfirmed">未確定</span>
+    </label>
     <input type="text" id="hqInput" value="CLINKS">
   </div>
   <div class="form-group">
-    <label>取引先候補会社名<span id="targetConfirmedTag" class="confirmed-tag" style="display:none;">✅ 確定済み</span></label>
+    <label>
+      取引先候補会社名
+      <span id="targetStatusBadge" class="status-badge unconfirmed">未確定</span>
+    </label>
     <input type="text" id="targetInput" placeholder="例: アルファ">
   </div>
 
@@ -273,30 +326,31 @@
     <div class="progress-bar">
       <div class="step-item" id="step1">
         <div class="step-circle" id="circle1">1</div>
-        <div class="step-label">受注企業分析</div>
+        <div class="step-label">企業検索</div>
       </div>
       <div class="step-line" id="line1"></div>
 
       <div class="step-item" id="step2">
         <div class="step-circle" id="circle2">2</div>
-        <div class="step-label">取引先企業分析</div>
+        <div class="step-label">情報収集</div>
       </div>
       <div class="step-line" id="line2"></div>
 
       <div class="step-item" id="step3">
         <div class="step-circle" id="circle3">3</div>
-        <div class="step-label">情報収集</div>
-      </div>
-      <div class="step-line" id="line3"></div>
-
-      <div class="step-item" id="step4">
-        <div class="step-circle" id="circle4">4</div>
-        <div class="step-label">AI評価</div>
+        <div class="step-label">AI分析</div>
       </div>
     </div>
   </div>
 
-  <div id="errorBox" class="error-box" style="display:none;"></div>
+  <div id="errorBox" class="error-box" style="display:none;">
+    <div class="error-msg" id="errorMsg"></div>
+    <button id="retryBtn" class="btn btn-retry" style="display:none;" onclick="handleRetry()">再試行</button>
+    <div>
+      <span class="error-detail-toggle" id="errorDetailToggle" onclick="toggleErrorDetail()" style="display:none;">詳細を表示</span>
+    </div>
+    <div class="error-detail-content" id="errorDetailContent"></div>
+  </div>
 
   <!-- 複数候補エリア -->
   <div id="candidateBox" class="candidate-box" style="display:none;">
@@ -354,15 +408,18 @@ const METRIC_NAMES = {
   total: "合計"
 };
 
-// 「確定済み」状態管理
+// 確定状態管理
 let hqConfirmed = false;
 let targetConfirmed = false;
 let hqConfirmedValue = "";
 let targetConfirmedValue = "";
 
-// 候補選択待ち状態管理
+// 候補選択待ち状態
 let needHqSelect = false;
 let needTargetSelect = false;
+
+// 直近のエラーがリトライ可能（AI/通信系）だったかどうか
+let lastErrorRetryable = false;
 
 document.addEventListener('DOMContentLoaded', () => {
   const hqInput = document.getElementById('hqInput');
@@ -372,7 +429,7 @@ document.addEventListener('DOMContentLoaded', () => {
     needHqSelect = false;
     if (hqConfirmed && hqInput.value.trim() !== hqConfirmedValue) {
       hqConfirmed = false;
-      updateConfirmedTag('hq', false);
+      updateStatusBadge('hq', false);
     }
     const radios = document.querySelectorAll('input[name="selectedHq"]');
     radios.forEach(r => r.checked = false);
@@ -383,7 +440,7 @@ document.addEventListener('DOMContentLoaded', () => {
     needTargetSelect = false;
     if (targetConfirmed && targetInput.value.trim() !== targetConfirmedValue) {
       targetConfirmed = false;
-      updateConfirmedTag('target', false);
+      updateStatusBadge('target', false);
     }
     const radios = document.querySelectorAll('input[name="selectedTarget"]');
     radios.forEach(r => r.checked = false);
@@ -391,16 +448,24 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
-function updateConfirmedTag(which, isConfirmed) {
-  const tag = document.getElementById(which === 'hq' ? 'hqConfirmedTag' : 'targetConfirmedTag');
-  tag.style.display = isConfirmed ? 'inline-block' : 'none';
+function updateStatusBadge(which, isConfirmed) {
+  const badge = document.getElementById(which === 'hq' ? 'hqStatusBadge' : 'targetStatusBadge');
+  if (isConfirmed) {
+    badge.textContent = '✅ 確定済み';
+    badge.classList.remove('unconfirmed');
+    badge.classList.add('confirmed');
+  } else {
+    badge.textContent = '未確定';
+    badge.classList.remove('confirmed');
+    badge.classList.add('unconfirmed');
+  }
 }
 
 function updateProgress(stepStates) {
   const wrapper = document.getElementById('progressWrapper');
   wrapper.style.display = 'block';
 
-  for (let i = 1; i <= 4; i++) {
+  for (let i = 1; i <= 3; i++) {
     const item = document.getElementById(`step${i}`);
     const circle = document.getElementById(`circle${i}`);
     const state = stepStates[i - 1];
@@ -414,7 +479,7 @@ function updateProgress(stepStates) {
       circle.textContent = i;
     }
 
-    if (i < 4) {
+    if (i < 3) {
       const line = document.getElementById(`line${i}`);
       line.classList.remove('completed');
       if (state === 'completed') {
@@ -434,7 +499,7 @@ function setButtonState(enabled) {
 }
 
 function clearPreviousState() {
-  document.getElementById('errorBox').style.display = 'none';
+  hideError();
   document.getElementById('candidateBox').style.display = 'none';
   document.getElementById('resultSection').style.display = 'none';
   document.getElementById('hqCandidateGroup').style.display = 'none';
@@ -443,30 +508,90 @@ function clearPreviousState() {
   document.getElementById('targetCandidates').innerHTML = '';
 }
 
+function hideError() {
+  document.getElementById('errorBox').style.display = 'none';
+  document.getElementById('retryBtn').style.display = 'none';
+  document.getElementById('errorDetailToggle').style.display = 'none';
+  document.getElementById('errorDetailContent').style.display = 'none';
+  document.getElementById('errorDetailContent').textContent = '';
+  lastErrorRetryable = false;
+}
+
+function showError(message, options) {
+  options = options || {};
+  const errorBox = document.getElementById('errorBox');
+  const errorMsg = document.getElementById('errorMsg');
+  const retryBtn = document.getElementById('retryBtn');
+  const detailToggle = document.getElementById('errorDetailToggle');
+  const detailContent = document.getElementById('errorDetailContent');
+
+  errorMsg.textContent = message;
+  errorBox.style.display = 'block';
+
+  if (options.retryable) {
+    retryBtn.style.display = 'inline-block';
+    lastErrorRetryable = true;
+  } else {
+    retryBtn.style.display = 'none';
+    lastErrorRetryable = false;
+  }
+
+  if (options.detail) {
+    detailToggle.style.display = 'inline-block';
+    detailContent.textContent = options.detail;
+  } else {
+    detailToggle.style.display = 'none';
+    detailContent.textContent = '';
+  }
+  detailContent.style.display = 'none';
+}
+
+function toggleErrorDetail() {
+  const content = document.getElementById('errorDetailContent');
+  content.style.display = (content.style.display === 'none' || !content.style.display) ? 'block' : 'none';
+}
+
+// エラー内容を判定して「AI一時的エラー」か「入力不備」かを振り分ける
+function classifyAndShowError(data, httpStatus) {
+  const rawMsg = (data && data.error) ? data.error : '不明なエラーが発生しました。';
+
+  const isAiTransient =
+    rawMsg.includes('NO_VALID_RESPONSE_GENERATED') ||
+    rawMsg.includes('JSONとして解析できません') ||
+    httpStatus >= 500 ||
+    httpStatus === 422;
+
+  if (isAiTransient) {
+    showError('⚠️ AIの一時的なエラーが発生しました。もう一度お試しください。', {
+      retryable: true,
+      detail: rawMsg
+    });
+  } else {
+    showError(rawMsg, { retryable: false });
+  }
+}
+
 async function handleMainAction() {
   const hq = document.getElementById('hqInput').value.trim();
   const target = document.getElementById('targetInput').value.trim();
-  const errorBox = document.getElementById('errorBox');
 
   clearPreviousState();
 
   if (!hq || !target) {
-    errorBox.textContent = '受注側会社名と取引先候補会社名の両方を入力してください。';
-    errorBox.style.display = 'block';
+    showError('受注側会社名と取引先候補会社名の両方を入力してください。', { retryable: false });
     return;
   }
 
   setButtonState(false);
 
-  // ★ 両方確定済みなら分析フェーズを完全スキップして情報収集へ一直線
+  // 両方確定済みなら検索フェーズを完全スキップ
   if (hqConfirmed && targetConfirmed) {
-    updateProgress(['completed', 'completed', 'active', 'pending']);
+    updateProgress(['completed', 'active', 'pending']);
     await runEvaluation();
     return;
   }
 
-  // 通常フロー：①②を並行分析中として表示
-  updateProgress(['active', 'active', 'pending', 'pending']);
+  updateProgress(['active', 'pending', 'pending']);
 
   try {
     const res = await fetch('/search_candidates', {
@@ -476,57 +601,48 @@ async function handleMainAction() {
     });
     const data = await res.json();
 
-    if (data.error) {
+    if (!res.ok || data.error) {
       hideProgress();
       setButtonState(true);
-      errorBox.textContent = data.error;
-      errorBox.style.display = 'block';
+      classifyAndShowError(data, res.status);
       return;
     }
 
     const hqRes = data.hq_res;
     const targetRes = data.target_res;
 
-    // 受注側の判定（既に確定済みなら結果を無視して確定状態を維持）
     if (!hqConfirmed) {
       if (hqRes.status === 'single') {
         document.getElementById('hqInput').value = hqRes.exact_name;
         hqConfirmed = true;
         hqConfirmedValue = hqRes.exact_name;
-        updateConfirmedTag('hq', true);
+        updateStatusBadge('hq', true);
         needHqSelect = false;
       } else {
         needHqSelect = true;
       }
     }
 
-    // 取引先側の判定
     if (!targetConfirmed) {
       if (targetRes.status === 'single') {
         document.getElementById('targetInput').value = targetRes.exact_name;
         targetConfirmed = true;
         targetConfirmedValue = targetRes.exact_name;
-        updateConfirmedTag('target', true);
+        updateStatusBadge('target', true);
         needTargetSelect = false;
       } else {
         needTargetSelect = true;
       }
     }
 
-    // 両方確定 ➔ そのまま情報収集・AI評価へ
     if (!needHqSelect && !needTargetSelect) {
-      updateProgress(['completed', 'completed', 'active', 'pending']);
+      updateProgress(['completed', 'active', 'pending']);
       await runEvaluation();
       return;
     }
 
-    // 片方または両方が複数候補 ➔ ①②のうち該当する方は「未完了」のまま候補リストを表示
-    updateProgress([
-      needHqSelect ? 'active' : 'completed',
-      needTargetSelect ? 'active' : 'completed',
-      'pending',
-      'pending'
-    ]);
+    // 候補選択待ちの間はプログレスバーを消す（ユーザー操作フェーズのため）
+    hideProgress();
 
     if (needHqSelect) {
       renderCandidates('hqCandidates', hqRes.candidates, 'selectedHq', onHqSelect);
@@ -543,9 +659,14 @@ async function handleMainAction() {
   } catch (err) {
     hideProgress();
     setButtonState(true);
-    errorBox.textContent = '通信エラーが発生しました。';
-    errorBox.style.display = 'block';
+    showError('⚠️ 通信エラーが発生しました。もう一度お試しください。', { retryable: true, detail: String(err) });
   }
+}
+
+function handleRetry() {
+  hideError();
+  // confirmed済みならhandleMainActionが自動的に検索をスキップしてevaluateへ直行する
+  handleMainAction();
 }
 
 function renderCandidates(containerId, candidates, radioName, selectCallback) {
@@ -575,15 +696,8 @@ function onHqSelect(selectedName) {
   document.getElementById('hqInput').value = selectedName;
   hqConfirmed = true;
   hqConfirmedValue = selectedName;
-  updateConfirmedTag('hq', true);
+  updateStatusBadge('hq', true);
   needHqSelect = false;
-  // ①のcircleを即✅化
-  updateProgress([
-    'completed',
-    needTargetSelect ? 'active' : 'completed',
-    'pending',
-    'pending'
-  ]);
   checkAndEnableButton();
 }
 
@@ -591,14 +705,8 @@ function onTargetSelect(selectedName) {
   document.getElementById('targetInput').value = selectedName;
   targetConfirmed = true;
   targetConfirmedValue = selectedName;
-  updateConfirmedTag('target', true);
+  updateStatusBadge('target', true);
   needTargetSelect = false;
-  updateProgress([
-    needHqSelect ? 'active' : 'completed',
-    'completed',
-    'pending',
-    'pending'
-  ]);
   checkAndEnableButton();
 }
 
@@ -616,13 +724,12 @@ function checkAndEnableButton() {
 async function runEvaluation() {
   const hqCompany = document.getElementById('hqInput').value.trim();
   const targetCompany = document.getElementById('targetInput').value.trim();
-  const errorBox = document.getElementById('errorBox');
 
   document.getElementById('candidateBox').style.display = 'none';
   setButtonState(false);
 
   const timer = setTimeout(() => {
-    updateProgress(['completed', 'completed', 'completed', 'active']);
+    updateProgress(['completed', 'completed', 'active']);
   }, 2500);
 
   try {
@@ -638,14 +745,16 @@ async function runEvaluation() {
     clearTimeout(timer);
     const data = await res.json();
 
-    hideProgress();
     setButtonState(true);
 
-    if (data.error) {
-      errorBox.textContent = data.error;
-      errorBox.style.display = 'block';
+    if (!res.ok || data.error) {
+      hideProgress();
+      classifyAndShowError(data, res.status);
       return;
     }
+
+    hideError();
+    hideProgress();
 
     document.getElementById('resHq').textContent = data.headquarters || '確認できませんでした';
 
@@ -686,8 +795,7 @@ async function runEvaluation() {
     clearTimeout(timer);
     hideProgress();
     setButtonState(true);
-    errorBox.textContent = '評価処理中に通信エラーが発生しました。';
-    errorBox.style.display = 'block';
+    showError('⚠️ AIの一時的なエラーが発生しました。もう一度お試しください。', { retryable: true, detail: String(err) });
   }
 }
 
