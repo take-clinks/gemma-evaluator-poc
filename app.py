@@ -22,14 +22,14 @@ def normalize_str(text):
 def fetch_company_candidates(keyword):
     """
     キーワードから会社を検索・判定する。
-    1意に特定できるか、または複数候補かを識別して返す。
+    1意に特定できるか、複数候補か、該当なしかを識別して返す。
     """
     if not keyword:
-        return {"status": "none", "candidates": [], "exact_name": ""}
+        return {"status": "notfound", "candidates": [], "exact_name": ""}
 
     tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
     query = f'{keyword} 企業 会社概要 本社所在地 公式サイト'
-    
+
     try:
         response = tavily_client.search(
             query,
@@ -39,7 +39,8 @@ def fetch_company_candidates(keyword):
         )
         results = response.get("results", [])
         if not results:
-            return {"status": "single", "candidates": [], "exact_name": keyword}
+            # ★修正: 検索結果がゼロの場合は「該当なし」として返す（旧: singleでkeywordをそのまま確定扱いしていたバグを修正）
+            return {"status": "notfound", "candidates": [], "exact_name": ""}
 
         search_text_lines = []
         for r in results:
@@ -74,7 +75,7 @@ def fetch_company_candidates(keyword):
             messages=[{"role": "user", "content": parse_prompt}],
             temperature=0.1,
         )
-        
+
         raw_json = strip_code_fence(parse_res.message.content[0].text)
         candidates_data = json.loads(raw_json)
 
@@ -85,7 +86,7 @@ def fetch_company_candidates(keyword):
             c_name = item.get("company_name", "").strip()
             loc = item.get("location", "").strip()
             desc = item.get("description", "").strip()
-            
+
             if not c_name:
                 continue
 
@@ -104,7 +105,10 @@ def fetch_company_candidates(keyword):
             })
 
         if not formatted_candidates:
-            return {"status": "single", "candidates": [], "exact_name": keyword}
+            # ★修正: 実在確認できた候補がゼロ件の場合は「該当なし」を明示的に返す
+            #        （旧コードは status:"single", exact_name:keyword を返しており、
+            #          誤字・存在しない社名でも自動確定されてしまうバグの原因だった）
+            return {"status": "notfound", "candidates": [], "exact_name": ""}
 
         # 1意判定（件数が1件のみの場合）
         if len(formatted_candidates) == 1:
@@ -123,13 +127,14 @@ def fetch_company_candidates(keyword):
     except Exception as e:
         print(f"Candidate Extraction Error: {e}")
         traceback.print_exc()
-        return {"status": "single", "candidates": [], "exact_name": keyword}
+        # ★修正: 例外発生時も「該当なし」として返す（旧: singleでkeywordをそのまま確定扱いしていた）
+        return {"status": "notfound", "candidates": [], "exact_name": ""}
 
 
 def search_company_info(company_name):
     tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
     query = f'"{company_name}" 会社概要 本社所在地 公式サイト'
-    
+
     response = tavily_client.search(
         query,
         max_results=5,
