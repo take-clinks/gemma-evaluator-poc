@@ -34,7 +34,7 @@ def search_company_info(company_name):
 def build_prompt(headquarters_company, target_company, headquarters_info, target_info):
     prompt = f"""
 あなたは法人間取引の営業支援アナリストです。
-以下の2社について、下記のWeb検索結果のみを根拠として評価してください。
+以下の2社について、下記のWeb検索結果を根拠として評価してください。
 
 受注側会社: {headquarters_company}
 受注側会社に関するWeb検索結果:
@@ -45,10 +45,12 @@ def build_prompt(headquarters_company, target_company, headquarters_info, target
 {target_info}
 
 重要な制約:
-Web検索結果の中に、取引先候補会社が実在すると確認できる具体的な情報（会社概要、公式サイト、本社所在地の記載等）が
-含まれていない場合は、想像や推測で情報を作成してはいけません。
-その場合は headquarters の値を "検索結果からは本社所在地を確認できませんでした" としてください。
-検索結果に含まれていない住所・郵便番号・ビル名を、絶対に自分で創作しないでください。
+Web検索結果の中に会社概要や本社所在地に関する記載がある場合は、その情報を使って回答してください。
+表記が多少異なっていても（法人格の位置、全角半角、株式会社の有無等）、
+同一の会社を指していると判断できる場合は、その情報を採用してください。
+Web検索結果に会社に関する情報が全く含まれていない場合のみ、
+headquarters の値を "検索結果からは本社所在地を確認できませんでした" としてください。
+検索結果に全く記載のない住所・郵便番号・ビル名を、自分で創作することは禁止します。
 
 出力は必ず以下のJSON形式のみで返してください。
 説明文やコードブロック記号は一切付けないでください。
@@ -82,7 +84,7 @@ Web検索結果の中に、取引先候補会社が実在すると確認でき�
 各項目（fit, scale, continuity, growth, strategy, trust, info）は0以上の整数で、
 各区分（ses, ai）ごとに合計が100点になるよう配点してください。
 sesはSES・システム開発の営業適合度評価、aiはAIドリブン開発の営業適合度評価です。
-取引先候補会社の実在性が確認できない場合は、すべての項目を0点にしてください。
+取引先候補会社の実在性が全く確認できない場合のみ、すべての項目を0点にしてください。
 """
     return prompt
 
@@ -118,9 +120,12 @@ def recalc_block(block):
     return block
 
 
-def call_cohere(headquarters_company, target_company):
+def call_cohere(headquarters_company, target_company, debug_info):
     headquarters_info = search_company_info(headquarters_company)
     target_info = search_company_info(target_company)
+
+    debug_info["headquarters_search"] = headquarters_info
+    debug_info["target_search"] = target_info
 
     prompt = build_prompt(headquarters_company, target_company, headquarters_info, target_info)
 
@@ -130,7 +135,7 @@ def call_cohere(headquarters_company, target_company):
         messages=[
             {"role": "user", "content": prompt},
         ],
-        temperature=0.1,
+        temperature=0.3,
     )
 
     return response.message.content[0].text
@@ -146,6 +151,7 @@ def evaluate():
     data = request.get_json(silent=True) or {}
     headquarters_company = (data.get("headquarters_company") or "").strip()
     target_company = (data.get("target_company") or "").strip()
+    debug_mode = bool(data.get("debug"))
 
     if not headquarters_company or not target_company:
         return jsonify({"error": "会社名を両方入力してください。"}), 400
@@ -156,8 +162,10 @@ def evaluate():
     if not TAVILY_API_KEY:
         return jsonify({"error": "TAVILY_API_KEYが設定されていません。"}), 500
 
+    debug_info = {}
+
     try:
-        raw_text = call_cohere(headquarters_company, target_company)
+        raw_text = call_cohere(headquarters_company, target_company, debug_info)
     except Exception as e:
         print("=== API呼び出しエラー詳細 ===")
         traceback.print_exc()
@@ -181,6 +189,9 @@ def evaluate():
         result["ses"] = recalc_block(result["ses"])
     if "ai" in result:
         result["ai"] = recalc_block(result["ai"])
+
+    if debug_mode:
+        result["debug"] = debug_info
 
     return jsonify(result)
 
