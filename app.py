@@ -39,7 +39,7 @@ def fetch_company_candidates(keyword):
         )
         results = response.get("results", [])
         if not results:
-            return {"status": "none", "candidates": [], "exact_name": keyword}
+            return {"status": "single", "candidates": [], "exact_name": keyword}
 
         search_text_lines = []
         for r in results:
