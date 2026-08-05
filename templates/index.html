@@ -443,34 +443,64 @@ let targetConfirmedValue = "";
 let needHqSelect = false;
 let needTargetSelect = false;
 
+// IME変換中フラグ
+let hqComposing = false;
+let targetComposing = false;
+
 document.addEventListener('DOMContentLoaded', () => {
   const hqInput = document.getElementById('hqInput');
   const targetInput = document.getElementById('targetInput');
 
+  // --- 受注側: IME対応 ---
+  hqInput.addEventListener('compositionstart', () => {
+    hqComposing = true;
+  });
+  hqInput.addEventListener('compositionend', () => {
+    hqComposing = false;
+    handleHqInputChange();
+  });
   hqInput.addEventListener('input', () => {
-    needHqSelect = false;
-    clearFieldError('hq');
-    if (hqConfirmed && hqInput.value.trim() !== hqConfirmedValue) {
-      hqConfirmed = false;
-      updateStatusBadge('hq', 'unconfirmed');
-    }
-    const radios = document.querySelectorAll('input[name="selectedHq"]');
-    radios.forEach(r => r.checked = false);
-    checkAndEnableButton();
+    if (hqComposing) return; // 変換確定前は内部処理をスキップ（IME挙動と衝突させない）
+    handleHqInputChange();
   });
 
+  // --- 取引先側: IME対応 ---
+  targetInput.addEventListener('compositionstart', () => {
+    targetComposing = true;
+  });
+  targetInput.addEventListener('compositionend', () => {
+    targetComposing = false;
+    handleTargetInputChange();
+  });
   targetInput.addEventListener('input', () => {
-    needTargetSelect = false;
-    clearFieldError('target');
-    if (targetConfirmed && targetInput.value.trim() !== targetConfirmedValue) {
-      targetConfirmed = false;
-      updateStatusBadge('target', 'unconfirmed');
-    }
-    const radios = document.querySelectorAll('input[name="selectedTarget"]');
-    radios.forEach(r => r.checked = false);
-    checkAndEnableButton();
+    if (targetComposing) return;
+    handleTargetInputChange();
   });
 });
+
+function handleHqInputChange() {
+  const hqInput = document.getElementById('hqInput');
+  needHqSelect = false;
+  clearFieldError('hq');
+  if (hqConfirmed && hqInput.value.trim() !== hqConfirmedValue) {
+    hqConfirmed = false;
+    updateStatusBadge('hq', 'unconfirmed');
+  }
+  document.querySelectorAll('input[name="selectedHq"]').forEach(r => r.checked = false);
+  checkAndEnableButton();
+}
+
+function handleTargetInputChange() {
+  const targetInput = document.getElementById('targetInput');
+  needTargetSelect = false;
+  clearFieldError('target');
+  if (targetConfirmed && targetInput.value.trim() !== targetConfirmedValue) {
+    targetConfirmed = false;
+    updateStatusBadge('target', 'unconfirmed');
+  }
+  document.querySelectorAll('input[name="selectedTarget"]').forEach(r => r.checked = false);
+  checkAndEnableButton();
+}
 
 function updateStatusBadge(which, state) {
   // state: 'unconfirmed' | 'confirmed' | 'notfound'
@@ -688,7 +718,7 @@ async function handleMainAction() {
     // 該当なしが1つでもあれば、そこで停止してユーザーに再入力を促す
     if (hasNotfound) {
       hideProgress();
-      setButtonState(false); // 再入力されるまでは押させない
+      setButtonState(false);
       checkAndEnableButton();
       return;
     }
