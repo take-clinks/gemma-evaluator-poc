@@ -14,7 +14,15 @@ TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY")
 
 def search_company_info(company_name):
     tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
-    query = "日本 企業 \"" + company_name + "\" 会社概要 本社所在地 公式サイト"
+    
+    # 【改善1】「アルファシステム」検索時に「アルファシステムズ」を拾うのを防ぐ動的除外設定
+    exclude_term = ""
+    if not company_name.endswith("ズ"):
+        # 末尾に「ズ」がない社名の場合、「社名+ズ」を検索から除外する
+        exclude_term = f' -"{company_name}ズ"'
+    
+    query = f'日本 企業 "{company_name}"{exclude_term} 会社概要 本社所在地 公式サイト'
+    
     response = tavily_client.search(
         query,
         max_results=5,
@@ -37,6 +45,7 @@ def search_company_info(company_name):
 
 
 def build_prompt(headquarters_company, target_company, headquarters_info, target_info):
+    # 【改善2】AIに対する「一文字違いの別会社」の混同防止プロンプトを強化
     prompt = f"""
 あなたは法人間取引の営業支援アナリストです。
 以下の2社について、下記のWeb検索結果を根拠として評価してください。
@@ -49,13 +58,12 @@ def build_prompt(headquarters_company, target_company, headquarters_info, target
 取引先候補会社に関するWeb検索結果:
 {target_info}
 
-重要な制約:
-Web検索結果の中に会社概要や本社所在地に関する記載がある場合は、その情報を使って回答してください。
-表記が多少異なっていても（法人格の位置、全角半角、株式会社の有無等）、
-同一の会社を指していると判断できる場合は、その情報を採用してください。
-Web検索結果が、指定された会社名と無関係な内容（別の会社、海外の同名企業、一般的な単語の検索結果等）である場合は、
-headquarters の値を "検索結果からは本社所在地を確認できませんでした" としてください。
-検索結果に全く記載のない住所・郵便番号・ビル名を、自分で創作することは禁止します。
+【極めて重要な制約】
+1. 表記揺れ（「株式会社」の有無、全角半角、前株/後株など）は同一視して構いません。
+2. ただし、「〜システム」と「〜システムズ」、「〜テクノロジー」と「〜テクノロジーズ」のように、語尾の「ズ」や一文字の違いで「全く別の会社」が存在します。これらを決して同一会社とみなさないでください。
+3. 検索結果が指定された会社名（{target_company}）と異なる別会社のものである場合は、絶対にその情報を使わないでください。
+4. Web検索結果から指定された会社の本社所在地が確認できない場合は、headquarters の値を "検索結果からは本社所在地を確認できませんでした" としてください。
+5. 検索結果にない情報を想像で補完・創作することは厳禁です。
 
 出力は必ず以下のJSON形式のみで返してください。
 説明文やコードブロック記号は一切付けないでください。
@@ -89,7 +97,7 @@ headquarters の値を "検索結果からは本社所在地を確認できま�
 各項目（fit, scale, continuity, growth, strategy, trust, info）は0以上の整数で、
 各区分（ses, ai）ごとに合計が100点になるよう配点してください。
 sesはSES・システム開発の営業適合度評価、aiはAIドリブン開発の営業適合度評価です。
-取引先候補会社の実在性が全く確認できない場合のみ、すべての項目を0点にしてください。
+取引先候補会社の実在性が全く確認できない場合（または別会社の情報しかない場合）は、すべての項目を0点にしてください。
 """
     return prompt
 
@@ -140,7 +148,7 @@ def call_cohere(headquarters_company, target_company, debug_info):
         messages=[
             {"role": "user", "content": prompt},
         ],
-        temperature=0.3,
+        temperature=0.1,  # 【改善3】ランダム性を下げて命令（制約）を厳格に守らせる(0.3 -> 0.1)
     )
 
     return response.message.content[0].text
