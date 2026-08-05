@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import unicodedata
 import traceback
 from flask import Flask, render_template, request, jsonify
 import cohere
@@ -12,20 +13,29 @@ COHERE_API_KEY = os.environ.get("COHERE_API_KEY")
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY")
 
 
+def normalize_str(text):
+    """比較用の文字正規化（全角半角・大文字小文字の統一）"""
+    if not text:
+        return ""
+    return unicodedata.normalize('NFKC', text).lower()
+
+
 def fetch_company_candidates(keyword):
     """
-    Tavilyの検索結果をAI(Cohere)に渡し、正式社名・本社所在地・特徴を整理した重複のない企業リストを作成する
+    キーワードに対し、社名テキスト自体にキーワードが含まれる企業（部分一致）および同名異住所の企業のみを厳格抽出する
     """
     if not keyword:
         return []
 
     tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
-    query = f'"{keyword}" 会社概要 本社所在地 公式サイト'
+    
+    # 部分一致検索（アルファシステム、アルファシステムズ等も含めて検索）
+    query = f'{keyword} 企業 会社概要 本社所在地 公式サイト'
     
     try:
         response = tavily_client.search(
             query,
-            max_results=8,
+            max_results=15,
             search_depth="advanced",
             country="japan",
         )
@@ -33,32 +43,32 @@ def fetch_company_candidates(keyword):
         if not results:
             return []
 
-        # 検索結果のテキストをまとめる
         search_text_lines = []
         for r in results:
             search_text_lines.append(f"Title: {r.get('title')}\nContent: {r.get('content')}")
         search_text = "\n---\n".join(search_text_lines)
 
-        # AIに検索結果から「実在する企業の重複のない正式名称リスト」をJSONで作成させる
+        # AIプロンプト：社名テキストにキーワードが含まれない別名子会社・グループ会社を【厳禁】とする
         parse_prompt = f"""
-以下のWeb検索結果から、キーワード「{keyword}」に関連する【実在する企業の正式名称リスト】を作成してください。
+以下のWeb検索結果から、キーワード「{keyword}」が社名に含まれる実在企業のみを抽出してリスト化してください。
 
 検索結果:
 {search_text}
 
-【出力ルール】
-1. 「会社概要」や「企業情報」などのページタイトルではなく、「株式会社〇〇」「〇〇株式会社」といった【正確な正式社名】を抽出してください。
-2. 同一の企業が複数含まれている場合は、絶対に1つに統合（重複排除）してください。
-3. キーワード「{keyword}」から推測される主要な関連企業（例：「アルファ」なら「株式会社アルファ」「株式会社アルファシステムズ」等）が含まれている場合は、それらも別企業として整理して含めてください。
-4. 各企業について、本社所在地（都道府県・市区町村）と簡単な特徴（上場区分や事業内容）を記載してください。
+【厳格な抽出ルール（違反厳禁）】
+1. 抽出対象は、社名テキスト自体に「{keyword}」（またはその読み）が含まれている企業【のみ】です。
+   （例: キーワードが「アルファ」の場合 ➔ 「アルファ」「アルファシステム」「アルファシステムズ」等は可）
+2. グループ会社、親会社、子会社であっても、社名テキストに「{keyword}」が含まれていない企業（例: 別名の関連会社など）は【絶対にリストに含めないでください】。
+3. 社名テキストが全く同じであっても、本社所在地（都道府県・市区町村）が異なる場合は【別の企業】としてそれぞれ抽出してください。
+4. 各企業について、正確な正式社名、本社所在地、および簡潔な特徴を明記してください。
 
-出力は必ず以下のJSON配列形式のみで返してください。説明文やコードブロック記号は不要です。
+出力は必ず以下のJSON配列形式のみで返してください。説明文やコードブロック記号は一切付けないでください。
 
 [
   {{
     "company_name": "正確な正式社名",
     "location": "本社所在地（例: 東京都千代田区）",
-    "description": "事業内容や市場（例: システム開発 / 東証プライム上場）"
+    "description": "事業内容や市場（例: システム開発 / 未上場）"
   }}
 ]
 """
@@ -72,8 +82,9 @@ def fetch_company_candidates(keyword):
         raw_json = strip_code_fence(parse_res.message.content[0].text)
         candidates_data = json.loads(raw_json)
 
-        # フォーマット整形
+        norm_keyword = normalize_str(keyword)
         formatted_candidates = []
+
         for item in candidates_data:
             c_name = item.get("company_name", "").strip()
             loc = item.get("location", "").strip()
@@ -82,14 +93,29 @@ def fetch_company_candidates(keyword):
             if not c_name:
                 continue
 
-            info_str = f"本社: {loc}" if loc else ""
+            norm_c_name = normalize_str(c_name)
+
+            # 【Python側の安全網フィルター】
+            # AIが事故で「LainZ」などの社名テキストにキーワードが含まれない会社を出してきたら強制排除する
+            if norm_keyword not in norm_c_name:
+                continue
+
+            info_str = f"本社: {loc}" if loc else "本社所在地不明"
             if desc:
-                info_str += f" / {desc}" if info_str else desc
+                info_str += f" / {desc}"
 
             formatted_candidates.append({
                 "display_name": c_name,
                 "full_title": c_name,
-                "snippet": info_str if info_str else "詳細情報なし"
+                "snippet": info_str
+            })
+
+        # 万が一フィルターで0件になった場合の保険
+        if not formatted_candidates:
+            formatted_candidates.append({
+                "display_name": keyword,
+                "full_title": keyword,
+                "snippet": "直接入力名を使用"
             })
 
         return formatted_candidates
@@ -97,7 +123,6 @@ def fetch_company_candidates(keyword):
     except Exception as e:
         print(f"Candidate Extraction Error: {e}")
         traceback.print_exc()
-        # フォールバック
         return [{"display_name": keyword, "full_title": keyword, "snippet": "直接入力名を使用"}]
 
 
