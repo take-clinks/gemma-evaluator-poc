@@ -14,7 +14,6 @@ TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY")
 
 
 def normalize_str(text):
-    """比較用の文字正規化（全角半角・大文字小文字の統一）"""
     if not text:
         return ""
     return unicodedata.normalize('NFKC', text).lower()
@@ -22,14 +21,13 @@ def normalize_str(text):
 
 def fetch_company_candidates(keyword):
     """
-    キーワードに対し、社名テキスト自体にキーワードが含まれる企業（部分一致）および同名異住所の企業のみを厳格抽出する
+    キーワードから会社を検索・判定する。
+    1意に特定できるか、または複数候補かを識別して返す。
     """
     if not keyword:
-        return []
+        return {"status": "none", "candidates": [], "exact_name": ""}
 
     tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
-    
-    # 部分一致検索（アルファシステム、アルファシステムズ等も含めて検索）
     query = f'{keyword} 企業 会社概要 本社所在地 公式サイト'
     
     try:
@@ -41,34 +39,32 @@ def fetch_company_candidates(keyword):
         )
         results = response.get("results", [])
         if not results:
-            return []
+            return {"status": "none", "candidates": [], "exact_name": keyword}
 
         search_text_lines = []
         for r in results:
             search_text_lines.append(f"Title: {r.get('title')}\nContent: {r.get('content')}")
         search_text = "\n---\n".join(search_text_lines)
 
-        # AIプロンプト：社名テキストにキーワードが含まれない別名子会社・グループ会社を【厳禁】とする
         parse_prompt = f"""
 以下のWeb検索結果から、キーワード「{keyword}」が社名に含まれる実在企業のみを抽出してリスト化してください。
 
 検索結果:
 {search_text}
 
-【厳格な抽出ルール（違反厳禁）】
-1. 抽出対象は、社名テキスト自体に「{keyword}」（またはその読み）が含まれている企業【のみ】です。
-   （例: キーワードが「アルファ」の場合 ➔ 「アルファ」「アルファシステム」「アルファシステムズ」等は可）
-2. グループ会社、親会社、子会社であっても、社名テキストに「{keyword}」が含まれていない企業（例: 別名の関連会社など）は【絶対にリストに含めないでください】。
-3. 社名テキストが全く同じであっても、本社所在地（都道府県・市区町村）が異なる場合は【別の企業】としてそれぞれ抽出してください。
-4. 各企業について、正確な正式社名、本社所在地、および簡潔な特徴を明記してください。
+【ルール】
+1. 抽出対象は社名自体に「{keyword}」（またはその読み）が含まれる企業のみです。
+2. グループ会社であっても社名に「{keyword}」が含まれない別名企業は除外してください。
+3. 社名が同じでも本社所在地（都道府県・市区町村）が異なる場合は別企業として抽出してください。
+4. 正確な正式社名、本社所在地、簡単な特徴を明記してください。
 
-出力は必ず以下のJSON配列形式のみで返してください。説明文やコードブロック記号は一切付けないでください。
+出力は必ず以下のJSON配列形式のみで返してください。説明文やコードブロック記号は不要です。
 
 [
   {{
     "company_name": "正確な正式社名",
     "location": "本社所在地（例: 東京都千代田区）",
-    "description": "事業内容や市場（例: システム開発 / 未上場）"
+    "description": "事業内容や市場"
   }}
 ]
 """
@@ -94,9 +90,6 @@ def fetch_company_candidates(keyword):
                 continue
 
             norm_c_name = normalize_str(c_name)
-
-            # 【Python側の安全網フィルター】
-            # AIが事故で「LainZ」などの社名テキストにキーワードが含まれない会社を出してきたら強制排除する
             if norm_keyword not in norm_c_name:
                 continue
 
@@ -110,24 +103,30 @@ def fetch_company_candidates(keyword):
                 "snippet": info_str
             })
 
-        # 万が一フィルターで0件になった場合の保険
         if not formatted_candidates:
-            formatted_candidates.append({
-                "display_name": keyword,
-                "full_title": keyword,
-                "snippet": "直接入力名を使用"
-            })
+            return {"status": "single", "candidates": [], "exact_name": keyword}
 
-        return formatted_candidates
+        # 1意判定（件数が1件のみの場合）
+        if len(formatted_candidates) == 1:
+            return {
+                "status": "single",
+                "candidates": formatted_candidates,
+                "exact_name": formatted_candidates[0]["display_name"]
+            }
+        else:
+            return {
+                "status": "multiple",
+                "candidates": formatted_candidates,
+                "exact_name": ""
+            }
 
     except Exception as e:
         print(f"Candidate Extraction Error: {e}")
         traceback.print_exc()
-        return [{"display_name": keyword, "full_title": keyword, "snippet": "直接入力名を使用"}]
+        return {"status": "single", "candidates": [], "exact_name": keyword}
 
 
 def search_company_info(company_name):
-    """確定社名で評価用Web情報を取得"""
     tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
     query = f'"{company_name}" 会社概要 本社所在地 公式サイト'
     
@@ -249,12 +248,12 @@ def search_candidates():
     if not headquarters_input or not target_input:
         return jsonify({"error": "会社名を両方入力してください。"}), 400
 
-    hq_candidates = fetch_company_candidates(headquarters_input)
-    target_candidates = fetch_company_candidates(target_input)
+    hq_res = fetch_company_candidates(headquarters_input)
+    target_res = fetch_company_candidates(target_input)
 
     return jsonify({
-        "headquarters_candidates": hq_candidates,
-        "target_candidates": target_candidates
+        "hq_res": hq_res,
+        "target_res": target_res
     })
 
 
@@ -266,7 +265,7 @@ def evaluate():
     debug_mode = bool(data.get("debug"))
 
     if not headquarters_company or not target_company:
-        return jsonify({"error": "会社名を選択または指定してください。"}), 400
+        return jsonify({"error": "会社名が正しく設定されていません。"}), 400
 
     debug_info = {}
 
