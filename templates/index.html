@@ -100,6 +100,7 @@
       font-size: 12px;
       font-weight: bold;
       color: #64748b;
+      text-align: center;
       transition: all 0.3s ease;
     }
     .step-line {
@@ -123,6 +124,7 @@
     .step-item.completed .step-circle {
       background-color: #16a34a;
       color: white;
+      font-size: 16px;
     }
     .step-item.completed .step-label {
       color: #16a34a;
@@ -240,6 +242,13 @@
       margin-top: 15px;
       font-size: 14px;
     }
+    .confirmed-tag {
+      display: inline-block;
+      margin-left: 8px;
+      font-size: 11px;
+      font-weight: bold;
+      color: #16a34a;
+    }
   </style>
 </head>
 <body>
@@ -249,14 +258,14 @@
 
   <!-- 入力エリア -->
   <div class="form-group">
-    <label>受注側会社名</label>
+    <label>受注側会社名<span id="hqConfirmedTag" class="confirmed-tag" style="display:none;">✅ 確定済み</span></label>
     <input type="text" id="hqInput" value="CLINKS">
   </div>
   <div class="form-group">
-    <label>取引先候補会社名</label>
+    <label>取引先候補会社名<span id="targetConfirmedTag" class="confirmed-tag" style="display:none;">✅ 確定済み</span></label>
     <input type="text" id="targetInput" placeholder="例: アルファ">
   </div>
-  
+
   <button id="mainBtn" class="btn" onclick="handleMainAction()">評価開始</button>
 
   <!-- プログレスバー -->
@@ -264,22 +273,22 @@
     <div class="progress-bar">
       <div class="step-item" id="step1">
         <div class="step-circle" id="circle1">1</div>
-        <div class="step-label">企業検索</div>
+        <div class="step-label">受注企業分析</div>
       </div>
       <div class="step-line" id="line1"></div>
-      
+
       <div class="step-item" id="step2">
         <div class="step-circle" id="circle2">2</div>
-        <div class="step-label">会社選択</div>
+        <div class="step-label">取引先企業分析</div>
       </div>
       <div class="step-line" id="line2"></div>
-      
+
       <div class="step-item" id="step3">
         <div class="step-circle" id="circle3">3</div>
         <div class="step-label">情報収集</div>
       </div>
       <div class="step-line" id="line3"></div>
-      
+
       <div class="step-item" id="step4">
         <div class="step-circle" id="circle4">4</div>
         <div class="step-label">AI評価</div>
@@ -291,8 +300,8 @@
 
   <!-- 複数候補エリア -->
   <div id="candidateBox" class="candidate-box" style="display:none;">
-    <div class="candidate-title">以下から選択または今一度正確な社名を入力</div>
-    
+    <div class="candidate-title">以下から選択、または今一度正確な社名を入力してください</div>
+
     <div id="hqCandidateGroup" class="candidate-group" style="display:none;">
       <h4>受注側会社の選択</h4>
       <div id="hqCandidates"></div>
@@ -345,16 +354,26 @@ const METRIC_NAMES = {
   total: "合計"
 };
 
+// 「確定済み」状態管理
+let hqConfirmed = false;
+let targetConfirmed = false;
+let hqConfirmedValue = "";
+let targetConfirmedValue = "";
+
+// 候補選択待ち状態管理
 let needHqSelect = false;
 let needTargetSelect = false;
 
-// 手入力を監視するイベントリスナー
 document.addEventListener('DOMContentLoaded', () => {
   const hqInput = document.getElementById('hqInput');
   const targetInput = document.getElementById('targetInput');
 
   hqInput.addEventListener('input', () => {
     needHqSelect = false;
+    if (hqConfirmed && hqInput.value.trim() !== hqConfirmedValue) {
+      hqConfirmed = false;
+      updateConfirmedTag('hq', false);
+    }
     const radios = document.querySelectorAll('input[name="selectedHq"]');
     radios.forEach(r => r.checked = false);
     checkAndEnableButton();
@@ -362,11 +381,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
   targetInput.addEventListener('input', () => {
     needTargetSelect = false;
+    if (targetConfirmed && targetInput.value.trim() !== targetConfirmedValue) {
+      targetConfirmed = false;
+      updateConfirmedTag('target', false);
+    }
     const radios = document.querySelectorAll('input[name="selectedTarget"]');
     radios.forEach(r => r.checked = false);
     checkAndEnableButton();
   });
 });
+
+function updateConfirmedTag(which, isConfirmed) {
+  const tag = document.getElementById(which === 'hq' ? 'hqConfirmedTag' : 'targetConfirmedTag');
+  tag.style.display = isConfirmed ? 'inline-block' : 'none';
+}
 
 function updateProgress(stepStates) {
   const wrapper = document.getElementById('progressWrapper');
@@ -381,7 +409,7 @@ function updateProgress(stepStates) {
     item.classList.add(state);
 
     if (state === 'completed') {
-      circle.textContent = '✓';
+      circle.textContent = '✅';
     } else {
       circle.textContent = i;
     }
@@ -429,7 +457,16 @@ async function handleMainAction() {
   }
 
   setButtonState(false);
-  updateProgress(['active', 'pending', 'pending', 'pending']);
+
+  // ★ 両方確定済みなら分析フェーズを完全スキップして情報収集へ一直線
+  if (hqConfirmed && targetConfirmed) {
+    updateProgress(['completed', 'completed', 'active', 'pending']);
+    await runEvaluation();
+    return;
+  }
+
+  // 通常フロー：①②を並行分析中として表示
+  updateProgress(['active', 'active', 'pending', 'pending']);
 
   try {
     const res = await fetch('/search_candidates', {
@@ -450,27 +487,46 @@ async function handleMainAction() {
     const hqRes = data.hq_res;
     const targetRes = data.target_res;
 
-    if (hqRes.status === 'single') {
-      document.getElementById('hqInput').value = hqRes.exact_name;
-      needHqSelect = false;
-    } else {
-      needHqSelect = true;
+    // 受注側の判定（既に確定済みなら結果を無視して確定状態を維持）
+    if (!hqConfirmed) {
+      if (hqRes.status === 'single') {
+        document.getElementById('hqInput').value = hqRes.exact_name;
+        hqConfirmed = true;
+        hqConfirmedValue = hqRes.exact_name;
+        updateConfirmedTag('hq', true);
+        needHqSelect = false;
+      } else {
+        needHqSelect = true;
+      }
     }
 
-    if (targetRes.status === 'single') {
-      document.getElementById('targetInput').value = targetRes.exact_name;
-      needTargetSelect = false;
-    } else {
-      needTargetSelect = true;
+    // 取引先側の判定
+    if (!targetConfirmed) {
+      if (targetRes.status === 'single') {
+        document.getElementById('targetInput').value = targetRes.exact_name;
+        targetConfirmed = true;
+        targetConfirmedValue = targetRes.exact_name;
+        updateConfirmedTag('target', true);
+        needTargetSelect = false;
+      } else {
+        needTargetSelect = true;
+      }
     }
 
+    // 両方確定 ➔ そのまま情報収集・AI評価へ
     if (!needHqSelect && !needTargetSelect) {
       updateProgress(['completed', 'completed', 'active', 'pending']);
       await runEvaluation();
       return;
     }
 
-    updateProgress(['completed', 'active', 'pending', 'pending']);
+    // 片方または両方が複数候補 ➔ ①②のうち該当する方は「未完了」のまま候補リストを表示
+    updateProgress([
+      needHqSelect ? 'active' : 'completed',
+      needTargetSelect ? 'active' : 'completed',
+      'pending',
+      'pending'
+    ]);
 
     if (needHqSelect) {
       renderCandidates('hqCandidates', hqRes.candidates, 'selectedHq', onHqSelect);
@@ -517,13 +573,32 @@ function renderCandidates(containerId, candidates, radioName, selectCallback) {
 
 function onHqSelect(selectedName) {
   document.getElementById('hqInput').value = selectedName;
+  hqConfirmed = true;
+  hqConfirmedValue = selectedName;
+  updateConfirmedTag('hq', true);
   needHqSelect = false;
+  // ①のcircleを即✅化
+  updateProgress([
+    'completed',
+    needTargetSelect ? 'active' : 'completed',
+    'pending',
+    'pending'
+  ]);
   checkAndEnableButton();
 }
 
 function onTargetSelect(selectedName) {
   document.getElementById('targetInput').value = selectedName;
+  targetConfirmed = true;
+  targetConfirmedValue = selectedName;
+  updateConfirmedTag('target', true);
   needTargetSelect = false;
+  updateProgress([
+    needHqSelect ? 'active' : 'completed',
+    'completed',
+    'pending',
+    'pending'
+  ]);
   checkAndEnableButton();
 }
 
@@ -531,7 +606,6 @@ function checkAndEnableButton() {
   const hqVal = document.getElementById('hqInput').value.trim();
   const targetVal = document.getElementById('targetInput').value.trim();
 
-  // 手入力またはラジオ選択により両方に文字が入っており、かつ選択待ち状態でなければアクト化
   if (hqVal !== '' && targetVal !== '' && !needHqSelect && !needTargetSelect) {
     setButtonState(true);
   } else {
@@ -547,8 +621,6 @@ async function runEvaluation() {
   document.getElementById('candidateBox').style.display = 'none';
   setButtonState(false);
 
-  updateProgress(['completed', 'completed', 'active', 'pending']);
-  
   const timer = setTimeout(() => {
     updateProgress(['completed', 'completed', 'completed', 'active']);
   }, 2500);
@@ -562,7 +634,7 @@ async function runEvaluation() {
         target_company: targetCompany
       })
     });
-    
+
     clearTimeout(timer);
     const data = await res.json();
 
