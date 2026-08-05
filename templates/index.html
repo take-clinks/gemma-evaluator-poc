@@ -1,54 +1,208 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8">
-<title>Groq検証 営業候補評価アプリ（PoC）</title>
-<link rel="stylesheet" href="/assets/app.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>法人間取引 営業候補評価アプリ</title>
+  <style>
+    body { font-family: sans-serif; margin: 20px; background-color: #f5f7fa; color: #333; }
+    .container { max-width: 900px; margin: 0 auto; background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+    h1 { font-size: 20px; border-bottom: 2px solid #3b82f6; padding-bottom: 8px; }
+    .form-group { margin-bottom: 15px; }
+    label { display: block; font-weight: bold; margin-bottom: 5px; }
+    input[type="text"] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+    button { background: #2563eb; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 14px; }
+    button:hover { background: #1d4ed8; }
+    .candidate-section { margin-top: 20px; padding: 15px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; }
+    .candidate-list { margin-bottom: 15px; }
+    .candidate-item { background: white; padding: 10px; margin: 8px 0; border: 1px solid #e5e7eb; border-radius: 4px; display: flex; align-items: flex-start; }
+    .candidate-item input { margin-top: 4px; margin-right: 10px; }
+    .candidate-info strong { color: #1e3a8a; }
+    .candidate-info p { margin: 3px 0 0 0; font-size: 12px; color: #6b7280; }
+    .result-section { margin-top: 25px; border-top: 2px solid #e5e7eb; padding-top: 20px; }
+    .error-box { background: #fef2f2; border: 1px solid #fecaca; color: #dc2626; padding: 12px; border-radius: 4px; margin-top: 15px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px; text-align: center; }
+    th { background: #f9fafb; }
+  </style>
 </head>
 <body>
+
 <div class="container">
-<h1>法人間取引 営業候補評価アプリ（Groq検証版）</h1>
+  <h1>法人間取引 営業候補評価アプリ</h1>
 
-<form id="evaluateForm">
-<label for="headquarters_company">受注側会社名</label>
-<input type="text" id="headquarters_company" name="headquarters_company" required>
+  <!-- ステップ1：キーワード入力 -->
+  <div class="form-group">
+    <label>受注側会社名（検索キーワード）</label>
+    <input type="text" id="hqInput" placeholder="例: CLINKS">
+  </div>
+  <div class="form-group">
+    <label>取引先候補会社名（検索キーワード）</label>
+    <input type="text" id="targetInput" placeholder="例: アルファ">
+  </div>
+  <button onclick="searchCandidates()">1. 会社候補を検索する</button>
 
-<label for="target_company">取引先候補会社名</label>
-<input type="text" id="target_company" name="target_company" required>
+  <div id="loading" style="display:none; margin-top:15px; color:#2563eb;">検索中・処理中...</div>
+  <div id="errorBox" class="error-box" style="display:none;"></div>
 
-<button type="submit" id="submitButton">評価する</button>
-</form>
+  <!-- ステップ2：候補選択エリア -->
+  <div id="candidateSection" class="candidate-section" style="display:none;">
+    <h3>会社候補を選択してください</h3>
+    
+    <h4>受注側会社の選択</h4>
+    <div id="hqCandidates" class="candidate-list"></div>
 
-<div id="loadingArea" style="display:none;">
-<div class="spinner"></div>
-<p>分析中です…</p>
+    <h4>取引先候補会社の選択</h4>
+    <div id="targetCandidates" class="candidate-list"></div>
+
+    <button onclick="evaluateCompanies()" style="background:#059669;">2. 選択した2社で営業評価を実行</button>
+  </div>
+
+  <!-- ステップ3：評価結果表示 -->
+  <div id="resultSection" class="result-section" style="display:none;">
+    <h2>評価結果</h2>
+    <p><strong>取引先本社所在地:</strong> <span id="resHq"></span></p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>評価項目</th>
+          <th>SES・システム開発</th>
+          <th>AIドリブン開発</th>
+        </tr>
+      </thead>
+      <tbody id="scoreTableBody"></tbody>
+    </table>
+  </div>
 </div>
 
-<div id="errorArea" style="display:none;"></div>
+<script>
+async function searchCandidates() {
+  const hq = document.getElementById('hqInput').value.trim();
+  const target = document.getElementById('targetInput').value.trim();
+  const errorBox = document.getElementById('errorBox');
+  const loading = document.getElementById('loading');
+  const candidateSection = document.getElementById('candidateSection');
+  const resultSection = document.getElementById('resultSection');
 
-<div id="resultArea" style="display:none;">
-<h2 id="headquartersResult"></h2>
+  errorBox.style.display = 'none';
+  resultSection.style.display = 'none';
 
-<table class="result-table">
-<thead>
-<tr>
-<th>評価項目</th>
-<th>SES・システム開発</th>
-<th>AIドリブン開発</th>
-</tr>
-</thead>
-<tbody id="resultTableBody">
-</tbody>
-</table>
+  if (!hq || !target) {
+    errorBox.textContent = '受注側会社名と取引先候補会社名の両方を入力してください。';
+    errorBox.style.display = 'block';
+    return;
+  }
 
-<div class="judgement-row">
-<div id="sesJudgement" class="judgement-box"></div>
-<div id="aiJudgement" class="judgement-box"></div>
-</div>
-</div>
+  loading.style.display = 'block';
 
-</div>
+  try {
+    const res = await fetch('/search_candidates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ headquarters_company: hq, target_company: target })
+    });
+    const data = await res.json();
+    loading.style.display = 'none';
 
-<script src="/assets/app.js"></script>
+    if (data.error) {
+      errorBox.textContent = data.error;
+      errorBox.style.display = 'block';
+      return;
+    }
+
+    renderCandidates('hqCandidates', data.headquarters_candidates, 'selectedHq');
+    renderCandidates('targetCandidates', data.target_candidates, 'selectedTarget');
+    candidateSection.style.display = 'block';
+
+  } catch (err) {
+    loading.style.display = 'none';
+    errorBox.textContent = '通信エラーが発生しました。';
+    errorBox.style.display = 'block';
+  }
+}
+
+function renderCandidates(elementId, candidates, radioName) {
+  const container = document.getElementById(elementId);
+  container.innerHTML = '';
+
+  if (!candidates || candidates.length === 0) {
+    container.innerHTML = '<p style="color:red;">候補が見つかりませんでした。</p>';
+    return;
+  }
+
+  candidates.forEach((c, idx) => {
+    const div = document.createElement('div');
+    div.className = 'candidate-item';
+    const checked = idx === 0 ? 'checked' : '';
+    div.innerHTML = `
+      <input type="radio" name="${radioName}" value="${c.display_name}" ${checked}>
+      <div class="candidate-info">
+        <strong>${c.display_name}</strong> (${c.full_title})
+        <p>${c.snippet}</p>
+      </div>
+    `;
+    container.appendChild(div);
+  });
+}
+
+async function evaluateCompanies() {
+  const selectedHq = document.querySelector('input[name="selectedHq"]:checked');
+  const selectedTarget = document.querySelector('input[name="selectedTarget"]:checked');
+  const errorBox = document.getElementById('errorBox');
+  const loading = document.getElementById('loading');
+  const resultSection = document.getElementById('resultSection');
+
+  if (!selectedHq || !selectedTarget) {
+    errorBox.textContent = '両方の会社をラジオボタンから選択してください。';
+    errorBox.style.display = 'block';
+    return;
+  }
+
+  loading.style.display = 'block';
+  errorBox.style.display = 'none';
+
+  try {
+    const res = await fetch('/evaluate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        headquarters_company: selectedHq.value,
+        target_company: selectedTarget.value
+      })
+    });
+    const data = await res.json();
+    loading.style.display = 'none';
+
+    if (data.error) {
+      errorBox.textContent = data.error;
+      errorBox.style.display = 'block';
+      return;
+    }
+
+    document.getElementById('resHq').textContent = data.headquarters || '不明';
+    
+    const tbody = document.getElementById('scoreTableBody');
+    tbody.innerHTML = '';
+    const items = ['fit', 'scale', 'continuity', 'growth', 'strategy', 'trust', 'info', 'total'];
+    
+    items.forEach(item => {
+      const tr = document.createElement('tr');
+      const sesVal = data.ses ? data.ses[item] : 0;
+      const aiVal = data.ai ? data.ai[item] : 0;
+      tr.innerHTML = `<td>${item.toUpperCase()}</td><td>${sesVal}</td><td>${aiVal}</td>`;
+      tbody.appendChild(tr);
+    });
+
+    resultSection.style.display = 'block';
+
+  } catch (err) {
+    loading.style.display = 'none';
+    errorBox.textContent = '評価処理で通信エラーが発生しました。';
+    errorBox.style.display = 'block';
+  }
+}
+</script>
+
 </body>
 </html>
