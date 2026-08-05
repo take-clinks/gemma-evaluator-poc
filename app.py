@@ -14,8 +14,13 @@ TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY")
 
 def search_company_info(company_name):
     tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
-    query = company_name + " 会社概要 本社 所在地"
-    response = tavily_client.search(query, max_results=3)
+    query = "日本 企業 \"" + company_name + "\" 会社概要 本社所在地 公式サイト"
+    response = tavily_client.search(
+        query,
+        max_results=5,
+        search_depth="advanced",
+        country="japan",
+    )
 
     results = response.get("results", [])
     if not results:
@@ -48,7 +53,7 @@ def build_prompt(headquarters_company, target_company, headquarters_info, target
 Web検索結果の中に会社概要や本社所在地に関する記載がある場合は、その情報を使って回答してください。
 表記が多少異なっていても（法人格の位置、全角半角、株式会社の有無等）、
 同一の会社を指していると判断できる場合は、その情報を採用してください。
-Web検索結果に会社に関する情報が全く含まれていない場合のみ、
+Web検索結果が、指定された会社名と無関係な内容（別の会社、海外の同名企業、一般的な単語の検索結果等）である場合は、
 headquarters の値を "検索結果からは本社所在地を確認できませんでした" としてください。
 検索結果に全く記載のない住所・郵便番号・ビル名を、自分で創作することは禁止します。
 
