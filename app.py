@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import unicodedata
 import traceback
 from flask import Flask, render_template, request, jsonify
 import cohere
@@ -12,51 +13,70 @@ COHERE_API_KEY = os.environ.get("COHERE_API_KEY")
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY")
 
 
-def clean_company_name(name):
-    """法人格やスペースを除去して純粋な社名テキストを取り出す汎用関数"""
-    return re.sub(r'株式会社|有限会社|合同会社|一般社団法人|（株）|\(株\)|\s+', '', name)
+def fetch_company_candidates(keyword):
+    """
+    入力されたキーワードから関連する企業の候補（タイトル、URL、概要）を抽出する
+    """
+    if not keyword:
+        return []
+
+    tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
+    query = f'"{keyword}" 会社概要 本社所在地 公式サイト'
+    
+    try:
+        response = tavily_client.search(
+            query,
+            max_results=5,
+            search_depth="advanced",
+            country="japan",
+        )
+    except Exception as e:
+        print(f"Tavily Search Error: {e}")
+        return []
+
+    results = response.get("results", [])
+    candidates = []
+
+    for r in results:
+        title = r.get("title", "")
+        content = r.get("content", "")
+        url = r.get("url", "")
+        
+        # タイトルから余計なWeb装飾（| 公式サイト 等）を落とした社名ラベルを作成
+        clean_name = re.sub(r'[\-|\|｜【】].*$', '', title).strip()
+        
+        candidates.append({
+            "display_name": clean_name if clean_name else title,
+            "full_title": title,
+            "snippet": content[:120] + "..." if len(content) > 120 else content,
+            "url": url
+        })
+
+    return candidates
 
 
 def search_company_info(company_name):
+    """選択された確実な社名でWeb情報を取得する"""
     tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
-    
-    # 完全一致検索を強制
-    query = f'日本 企業 "{company_name}" 会社概要 本社所在地 公式サイト'
+    query = f'"{company_name}" 会社概要 本社所在地 公式サイト'
     
     response = tavily_client.search(
         query,
-        max_results=8,
+        max_results=5,
         search_depth="advanced",
         country="japan",
     )
 
     results = response.get("results", [])
     if not results:
-        return "検索結果なし（該当する会社情報が見つかりませんでした）"
-
-    clean_target = clean_company_name(company_name)
-    
-    # 汎用ロジック: 指定社名の直後にカタカナが続いて別名詞化しているか判定するパターン
-    # 例: clean_target="アルファシステム" の場合、直後にカタカナ(ズ等)がつく "アルファシステムズ" を検出
-    extension_pattern = re.escape(clean_target) + r'[\u30A0-\u30FF]'
+        return f"「{company_name}」の該当情報が見つかりませんでした。"
 
     lines = []
     for r in results:
         title = r.get("title", "")
         content = r.get("content", "")
         url = r.get("url", "")
-        
-        clean_title = clean_company_name(title)
-        
-        # 検索結果のタイトルが「アルファシステムズ」のように語尾拡張されており、
-        # かつ入力された社名自体（clean_target）にはその拡張が含まれていない場合は別会社とみなして除外
-        if re.search(extension_pattern, clean_title) and not re.search(extension_pattern, clean_target):
-            continue
-
         lines.append(f"- {title}\n{content}\n(出典: {url})")
-
-    if not lines:
-        return f"「{company_name}」に関する明確な情報が見つかりませんでした。（類似の別会社情報は除外されました）"
 
     return "\n".join(lines)
 
@@ -64,22 +84,20 @@ def search_company_info(company_name):
 def build_prompt(headquarters_company, target_company, headquarters_info, target_info):
     prompt = f"""
 あなたは法人間取引の営業支援アナリストです。
-以下の2社について、下記のWeb検索結果を根拠として評価してください。
+以下の確定された2社について、Web検索結果に基づいて評価を行ってください。
 
-受注側会社: {headquarters_company}
-受注側会社に関するWeb検索結果:
+受注側会社（確定社名）: {headquarters_company}
+受注側会社の検索結果:
 {headquarters_info}
 
-取引先候補会社: {target_company}
-取引先候補会社に関するWeb検索結果:
+取引先候補会社（確定社名）: {target_company}
+取引先候補会社の検索結果:
 {target_info}
 
-【厳格な判定ルール】
-1. 「株式会社」の有無や全角半角の違い、前株/後株の違いは同一会社として扱ってください。
-2. ただし、「〜システム」と「〜システムズ」、「〜ジャパン」の有無など、社名テキスト自体が異なる場合は「絶対に別の会社」として扱ってください。
-3. Web検索結果が指定された会社（{target_company}）と異なる別会社のものである場合、または情報が見つからない場合は、headquarters の値を必ず "検索結果からは本社所在地を確認できませんでした" としてください。
-4. 情報が不十分・確認できない場合は、ses および ai の全評価項目（fit, scale, continuity, growth, strategy, trust, info）をすべて 0 点にしてください。
-5. 検索結果に存在しない住所・郵便番号・ビル名を自分で推測・創作することは厳禁です。
+【評価ルール】
+1. 検索結果を基に、取引先候補会社（{target_company}）の本社所在地（郵便番号含む）を「headquarters」に記載してください。
+2. 検索結果から本社所在地がどうしても特定できない場合は、headquarters を "検索結果からは本社所在地を確認できませんでした" としてください。
+3. 検索結果にない情報を推測や想像で補完することは固く禁止します。
 
 出力は必ず以下のJSON形式のみで返してください。
 説明文やコードブロック記号は一切付けないでください。
@@ -110,7 +128,7 @@ def build_prompt(headquarters_company, target_company, headquarters_info, target
   }}
 }}
 
-各項目は0以上の整数で、各区分（ses, ai）ごとに合計が100点になるよう配点してください（情報不足時は全項目0点）。
+各項目（fit, scale, continuity, growth, strategy, trust, info）は0以上の整数で、各区分（ses, ai）ごとに合計が100点になるよう配点してください。
 """
     return prompt
 
@@ -146,54 +164,60 @@ def recalc_block(block):
     return block
 
 
-def call_cohere(headquarters_company, target_company, debug_info):
-    headquarters_info = search_company_info(headquarters_company)
-    target_info = search_company_info(target_company)
-
-    debug_info["headquarters_search"] = headquarters_info
-    debug_info["target_search"] = target_info
-
-    prompt = build_prompt(headquarters_company, target_company, headquarters_info, target_info)
-
-    co = cohere.ClientV2(api_key=COHERE_API_KEY)
-    response = co.chat(
-        model="command-a-03-2025",
-        messages=[
-            {"role": "user", "content": prompt},
-        ],
-        temperature=0.0,
-    )
-
-    return response.message.content[0].text
-
-
 @app.route("/")
 def index():
     return render_template("index.html")
 
 
+@app.route("/search_candidates", methods=["POST"])
+def search_candidates():
+    """ステップ1：両社の候補一覧を取得するエンドポイント"""
+    data = request.get_json(silent=True) or {}
+    headquarters_input = (data.get("headquarters_company") or "").strip()
+    target_input = (data.get("target_company") or "").strip()
+
+    if not headquarters_input or not target_input:
+        return jsonify({"error": "両方の会社名を入力してください。"}), 400
+
+    hq_candidates = fetch_company_candidates(headquarters_input)
+    target_candidates = fetch_company_candidates(target_input)
+
+    return jsonify({
+        "headquarters_candidates": hq_candidates,
+        "target_candidates": target_candidates
+    })
+
+
 @app.route("/evaluate", methods=["POST"])
 def evaluate():
+    """ステップ2：確定された社名で評価を実行するエンドポイント"""
     data = request.get_json(silent=True) or {}
     headquarters_company = (data.get("headquarters_company") or "").strip()
     target_company = (data.get("target_company") or "").strip()
-    debug_mode = bool(data.get("debug"))
 
     if not headquarters_company or not target_company:
-        return jsonify({"error": "会社名を両方入力してください。"}), 400
-
-    if not COHERE_API_KEY:
-        return jsonify({"error": "COHERE_API_KEYが設定されていません。"}), 500
-
-    if not TAVILY_API_KEY:
-        return jsonify({"error": "TAVILY_API_KEYが設定されていません。"}), 500
+        return jsonify({"error": "会社名が選択されていません。"}), 400
 
     debug_info = {}
 
     try:
-        raw_text = call_cohere(headquarters_company, target_company, debug_info)
+        headquarters_info = search_company_info(headquarters_company)
+        target_info = search_company_info(target_company)
+
+        debug_info["headquarters_search"] = headquarters_info
+        debug_info["target_search"] = target_info
+
+        prompt = build_prompt(headquarters_company, target_company, headquarters_info, target_info)
+
+        co = cohere.ClientV2(api_key=COHERE_API_KEY)
+        response = co.chat(
+            model="command-a-03-2025",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+        )
+        raw_text = response.message.content[0].text
+
     except Exception as e:
-        print("=== API呼び出しエラー詳細 ===")
         traceback.print_exc()
         return jsonify({"error": "API呼び出しでエラーが発生しました: " + str(e)}), 500
 
@@ -204,10 +228,7 @@ def evaluate():
     except json.JSONDecodeError:
         match = re.search(r"\{.*\}", cleaned, re.DOTALL)
         if match:
-            try:
-                result = json.loads(match.group(0))
-            except json.JSONDecodeError:
-                return jsonify({"error": "AIの応答をJSONとして解析できませんでした。", "raw": cleaned}), 500
+            result = json.loads(match.group(0))
         else:
             return jsonify({"error": "AIの応答をJSONとして解析できませんでした。", "raw": cleaned}), 500
 
@@ -215,9 +236,6 @@ def evaluate():
         result["ses"] = recalc_block(result["ses"])
     if "ai" in result:
         result["ai"] = recalc_block(result["ai"])
-
-    if debug_mode:
-        result["debug"] = debug_info
 
     return jsonify(result)
 
