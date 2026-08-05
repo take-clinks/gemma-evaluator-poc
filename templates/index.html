@@ -47,20 +47,20 @@
       background-color: #2563eb;
       color: white;
       border: none;
-      padding: 10px 20px;
+      padding: 12px 24px;
       border-radius: 4px;
       cursor: pointer;
-      font-size: 14px;
+      font-size: 15px;
       font-weight: bold;
+      transition: background-color 0.2s, opacity 0.2s;
     }
-    .btn:hover {
+    .btn:hover:not(:disabled) {
       background-color: #1d4ed8;
     }
-    .btn-success {
-      background-color: #16a34a;
-    }
-    .btn-success:hover {
-      background-color: #15803d;
+    .btn:disabled {
+      background-color: #94a3b8;
+      cursor: not-allowed;
+      opacity: 0.7;
     }
     .candidate-box {
       margin-top: 20px;
@@ -70,7 +70,7 @@
       border-radius: 6px;
     }
     .candidate-title {
-      font-size: 16px;
+      font-size: 15px;
       font-weight: bold;
       color: #0369a1;
       margin-top: 0;
@@ -92,6 +92,10 @@
       border-radius: 4px;
       display: flex;
       align-items: flex-start;
+      cursor: pointer;
+    }
+    .candidate-item:hover {
+      border-color: #3b82f6;
     }
     .candidate-item input[type="radio"] {
       margin-top: 3px;
@@ -161,11 +165,12 @@
       margin-top: 15px;
       font-size: 14px;
     }
-    #loading {
+    #statusMsg {
       display: none;
       margin-top: 15px;
       font-weight: bold;
       color: #2563eb;
+      font-size: 15px;
     }
   </style>
 </head>
@@ -176,36 +181,35 @@
 
   <!-- 入力エリア -->
   <div class="form-group">
-    <label>受注側会社名（検索キーワード）</label>
+    <label>受注側会社名</label>
     <input type="text" id="hqInput" value="CLINKS">
   </div>
   <div class="form-group">
-    <label>取引先候補会社名（検索キーワード）</label>
-    <input type="text" id="targetInput" placeholder="例: アルファシステム">
+    <label>取引先候補会社名</label>
+    <input type="text" id="targetInput" placeholder="例: アルファ">
   </div>
-  <button class="btn" onclick="searchCandidates()">1. 会社候補を検索する</button>
+  
+  <button id="mainBtn" class="btn" onclick="handleMainAction()">評価開始</button>
 
-  <div id="loading">処理中... しばらくお待ちください。</div>
+  <div id="statusMsg"></div>
   <div id="errorBox" class="error-box" style="display:none;"></div>
 
-  <!-- 2ステップ目：会社候補選択エリア -->
+  <!-- 複数候補がある場合のみ表示されるエリア -->
   <div id="candidateBox" class="candidate-box" style="display:none;">
-    <div class="candidate-title">会社候補を選択してください</div>
+    <div class="candidate-title">以下から選択または今一度正確な社名を入力</div>
     
-    <div class="candidate-group">
+    <div id="hqCandidateGroup" class="candidate-group" style="display:none;">
       <h4>受注側会社の選択</h4>
       <div id="hqCandidates"></div>
     </div>
 
-    <div class="candidate-group">
+    <div id="targetCandidateGroup" class="candidate-group" style="display:none;">
       <h4>取引先候補会社の選択</h4>
       <div id="targetCandidates"></div>
     </div>
-
-    <button class="btn btn-success" onclick="evaluateCompanies()">2. 選択した2社で評価を実行</button>
   </div>
 
-  <!-- 3ステップ目：評価結果表示 -->
+  <!-- 評価結果表示 -->
   <div id="resultSection" class="result-section" style="display:none;">
     <div class="hq-address">
       取引先本社所在地: <span id="resHq"></span>
@@ -246,20 +250,42 @@ const METRIC_NAMES = {
   total: "合計"
 };
 
-async function searchCandidates() {
+// 選択必須フラグ
+let needHqSelect = false;
+let needTargetSelect = false;
+
+function setButtonState(enabled, text) {
+  const btn = document.getElementById('mainBtn');
+  btn.disabled = !enabled;
+  if (text) btn.textContent = text;
+}
+
+function showStatus(text) {
+  const msg = document.getElementById('statusMsg');
+  if (text) {
+    msg.textContent = text;
+    msg.style.display = 'block';
+  } else {
+    msg.style.display = 'none';
+  }
+}
+
+function clearPreviousState() {
+  document.getElementById('errorBox').style.display = 'none';
+  document.getElementById('candidateBox').style.display = 'none';
+  document.getElementById('resultSection').style.display = 'none';
+  document.getElementById('hqCandidateGroup').style.display = 'none';
+  document.getElementById('targetCandidateGroup').style.display = 'none';
+  document.getElementById('hqCandidates').innerHTML = '';
+  document.getElementById('targetCandidates').innerHTML = '';
+}
+
+async function handleMainAction() {
   const hq = document.getElementById('hqInput').value.trim();
   const target = document.getElementById('targetInput').value.trim();
   const errorBox = document.getElementById('errorBox');
-  const loading = document.getElementById('loading');
-  const candidateBox = document.getElementById('candidateBox');
-  const resultSection = document.getElementById('resultSection');
 
-  // 【最重要修正】ボタンが押された瞬間に過去の表示（候補・評価結果・エラー）を完全に消去（クリア）する
-  errorBox.style.display = 'none';
-  candidateBox.style.display = 'none';
-  resultSection.style.display = 'none';
-  document.getElementById('hqCandidates').innerHTML = '';
-  document.getElementById('targetCandidates').innerHTML = '';
+  clearPreviousState();
 
   if (!hq || !target) {
     errorBox.textContent = '受注側会社名と取引先候補会社名の両方を入力してください。';
@@ -267,7 +293,9 @@ async function searchCandidates() {
     return;
   }
 
-  loading.style.display = 'block';
+  // ボタンを非アクト化し、会社名判定処理を開始
+  setButtonState(false, '会社名判定処理中...');
+  showStatus('会社名判定処理中...');
 
   try {
     const res = await fetch('/search_candidates', {
@@ -276,82 +304,137 @@ async function searchCandidates() {
       body: JSON.stringify({ headquarters_company: hq, target_company: target })
     });
     const data = await res.json();
-    loading.style.display = 'none';
 
     if (data.error) {
+      showStatus(null);
+      setButtonState(true, '評価開始');
       errorBox.textContent = data.error;
       errorBox.style.display = 'block';
       return;
     }
 
-    renderCandidates('hqCandidates', data.headquarters_candidates, 'selectedHq');
-    renderCandidates('targetCandidates', data.target_candidates, 'selectedTarget');
+    const hqRes = data.hq_res;
+    const targetRes = data.target_res;
+
+    // 1意に決まった側は社名BOXに正式名称を即座に上書きセット
+    if (hqRes.status === 'single') {
+      document.getElementById('hqInput').value = hqRes.exact_name;
+      needHqSelect = false;
+    } else {
+      needHqSelect = true;
+    }
+
+    if (targetRes.status === 'single') {
+      document.getElementById('targetInput').value = targetRes.exact_name;
+      needTargetSelect = false;
+    } else {
+      needTargetSelect = true;
+    }
+
+    // パターンA: 両方とも1意に確定した場合 ➔ そのまま自動で評価実行へ
+    if (!needHqSelect && !needTargetSelect) {
+      await runEvaluation();
+      return;
+    }
+
+    // パターンB: どちらか（または両方）複数候補がある場合 ➔ リスト表示
+    showStatus(null);
     
-    // 新しい結果がセットされてから画面に表示する
-    candidateBox.style.display = 'block';
+    if (needHqSelect) {
+      renderCandidates('hqCandidates', hqRes.candidates, 'selectedHq', onHqSelect);
+      document.getElementById('hqCandidateGroup').style.display = 'block';
+    }
+    if (needTargetSelect) {
+      renderCandidates('targetCandidates', targetRes.candidates, 'selectedTarget', onTargetSelect);
+      document.getElementById('targetCandidateGroup').style.display = 'block';
+    }
+
+    document.getElementById('candidateBox').style.display = 'block';
+
+    // 複数候補選択が必要なため、ボタンは非アクト化（評価開始）
+    setButtonState(false, '評価開始');
 
   } catch (err) {
-    loading.style.display = 'none';
+    showStatus(null);
+    setButtonState(true, '評価開始');
     errorBox.textContent = '通信エラーが発生しました。';
     errorBox.style.display = 'block';
   }
 }
 
-function renderCandidates(elementId, candidates, radioName) {
-  const container = document.getElementById(elementId);
+function renderCandidates(containerId, candidates, radioName, selectCallback) {
+  const container = document.getElementById(containerId);
   container.innerHTML = '';
 
-  if (!candidates || candidates.length === 0) {
-    container.innerHTML = '<p style="color:red; font-size:13px;">候補が見つかりませんでした。</p>';
-    return;
-  }
-
-  candidates.forEach((c, idx) => {
+  candidates.forEach(c => {
     const div = document.createElement('div');
     div.className = 'candidate-item';
-    const checked = idx === 0 ? 'checked' : '';
-    
     div.innerHTML = `
-      <input type="radio" name="${radioName}" value="${escapeHtml(c.display_name)}" ${checked}>
+      <input type="radio" name="${radioName}" value="${escapeHtml(c.display_name)}">
       <div class="candidate-details">
         <strong>${escapeHtml(c.display_name)}</strong>
         <p>${escapeHtml(c.snippet)}</p>
       </div>
     `;
+    div.onclick = (e) => {
+      const radio = div.querySelector('input[type="radio"]');
+      radio.checked = true;
+      selectCallback(c.display_name);
+    };
     container.appendChild(div);
   });
 }
 
-async function evaluateCompanies() {
-  const selectedHq = document.querySelector('input[name="selectedHq"]:checked');
-  const selectedTarget = document.querySelector('input[name="selectedTarget"]:checked');
-  const errorBox = document.getElementById('errorBox');
-  const loading = document.getElementById('loading');
-  const resultSection = document.getElementById('resultSection');
+function onHqSelect(selectedName) {
+  document.getElementById('hqInput').value = selectedName;
+  needHqSelect = false;
+  checkAndEnableButton();
+}
 
-  // 【最重要修正】評価ボタンが押された瞬間も過去の評価結果を即時クリアする
-  errorBox.style.display = 'none';
-  resultSection.style.display = 'none';
+function onTargetSelect(selectedName) {
+  document.getElementById('targetInput').value = selectedName;
+  needTargetSelect = false;
+  checkAndEnableButton();
+}
 
-  if (!selectedHq || !selectedTarget) {
-    errorBox.textContent = '両方の会社を候補から選択してください。';
-    errorBox.style.display = 'block';
-    return;
+function checkAndEnableButton() {
+  // 両方の選択が完了したらボタンをアクト化（青色に点灯）
+  if (!needHqSelect && !needTargetSelect) {
+    setButtonState(true, '評価開始');
   }
+}
 
-  loading.style.display = 'block';
+async function runEvaluation() {
+  const hqCompany = document.getElementById('hqInput').value.trim();
+  const targetCompany = document.getElementById('targetInput').value.trim();
+  const errorBox = document.getElementById('errorBox');
+
+  // 評価実行時は候補リスト表示を消去
+  document.getElementById('candidateBox').style.display = 'none';
+
+  setButtonState(false, '評価実行中...');
+
+  // ステータス表示アニメーション
+  showStatus('情報収集中...');
+  const timer1 = setTimeout(() => showStatus('データ分析中...'), 2500);
+  const timer2 = setTimeout(() => showStatus('営業適合度を判定中...'), 5000);
 
   try {
     const res = await fetch('/evaluate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        headquarters_company: selectedHq.value,
-        target_company: selectedTarget.value
+        headquarters_company: hqCompany,
+        target_company: targetCompany
       })
     });
+    
+    clearTimeout(timer1);
+    clearTimeout(timer2);
+
     const data = await res.json();
-    loading.style.display = 'none';
+    showStatus(null);
+    setButtonState(true, '評価開始');
 
     if (data.error) {
       errorBox.textContent = data.error;
@@ -392,10 +475,13 @@ async function evaluateCompanies() {
     document.getElementById('sesBadge').textContent = `SES評価: ${sesJudge} (${sesTotal}点)`;
     document.getElementById('aiBadge').textContent = `AI評価: ${aiJudge} (${aiTotal}点)`;
 
-    resultSection.style.display = 'block';
+    document.getElementById('resultSection').style.display = 'block';
 
   } catch (err) {
-    loading.style.display = 'none';
+    clearTimeout(timer1);
+    clearTimeout(timer2);
+    showStatus(null);
+    setButtonState(true, '評価開始');
     errorBox.textContent = '評価処理中に通信エラーが発生しました。';
     errorBox.style.display = 'block';
   }
